@@ -69,7 +69,7 @@ export default function DashboardAdmin() {
         `🎟️ *Tus números asignados:*\n` +
         `*${tickets.join(" - ")}*\n\n` +
         `Puedes consultar tus tickets en cualquier momento aquí:\n` +
-        `https://ganaconjuvenil.com/mis-tickets\n\n` +
+        `https://ganaconjuvenil.netlify.app/mis-tickets\n\n` +
         `¡Mucha suerte! 🍀`;
 
       const mensajeFinal = encodeURIComponent(textoMensaje);
