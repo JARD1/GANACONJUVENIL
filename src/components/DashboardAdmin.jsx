@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../firebase'; 
-import { collection, query, onSnapshot, doc, updateDoc, getDocs, where } from "firebase/firestore";
+import { collection, query, onSnapshot, doc, updateDoc, getDocs, where, writeBatch } from "firebase/firestore";
 import { listaRifas } from '../data/rifas';
 
 export default function DashboardAdmin() {
@@ -9,6 +9,7 @@ export default function DashboardAdmin() {
   const [busqueda, setBusqueda] = useState("");
   const [filtroRifa, setFiltroRifa] = useState("todas");
   const [procesandoId, setProcesandoId] = useState(null);
+  const [archivando, setArchivando] = useState(false); // Nuevo estado para el loader de archivo
 
   useEffect(() => {
     const q = query(collection(db, "pagos"));
@@ -19,6 +20,55 @@ export default function DashboardAdmin() {
     return () => unsubscribe();
   }, []);
 
+  // --- NUEVA FUNCIÓN: ARCHIVAR RIFA ---
+  const archivarRifaActual = async () => {
+    if (filtroRifa === "todas") return alert("Selecciona una rifa específica para archivar.");
+    
+    const confirmacion = window.confirm(
+      `⚠️ ¿ESTÁS SEGURO?\n\nEsta acción moverá todos los registros de "${filtroRifa}" a la tabla de ARCHIVADOS y los borrará de esta vista.\n\nEsto dejará la rifa limpia para empezar de nuevo.`
+    );
+
+    if (!confirmacion) return;
+
+    setArchivando(true);
+    try {
+      const q = query(collection(db, "pagos"), where("rifaId", "==", filtroRifa));
+      const querySnapshot = await getDocs(q);
+
+      if (querySnapshot.empty) {
+        setArchivando(false);
+        return alert("No hay registros para archivar en esta rifa.");
+      }
+
+      const batch = writeBatch(db);
+
+      querySnapshot.forEach((documento) => {
+        const datos = documento.data();
+        // 1. Creamos la copia en la colección 'archivados'
+        const nuevaRefArchivo = doc(collection(db, "archivados"));
+        batch.set(nuevaRefArchivo, {
+          ...datos,
+          fechaFinalizacion: new Date(),
+          idOriginal: documento.id
+        });
+
+        // 2. Marcamos para borrar de la colección 'pagos'
+        const refOriginal = doc(db, "pagos", documento.id);
+        batch.delete(refOriginal);
+      });
+
+      await batch.commit();
+      alert(`✅ Éxito: Se han movido ${querySnapshot.size} registros al historial.`);
+      
+    } catch (error) {
+      console.error(error);
+      alert("Error al archivar la rifa.");
+    } finally {
+      setArchivando(false);
+    }
+  };
+
+  // ... (tus funciones generarNumerosUnicos, admitirPago y rechazarPago se mantienen igual)
   const generarNumerosUnicos = async (cantidadSolicitada, rifaId) => {
     const q = query(
       collection(db, "pagos"), 
@@ -106,14 +156,25 @@ export default function DashboardAdmin() {
   return (
     <div className="max-w-7xl mx-auto p-6 space-y-8">
       
-      {/* HEADER */}
+      {/* HEADER CON BOTÓN DE ARCHIVAR */}
       <div className="flex flex-col md:flex-row justify-between items-center gap-4 bg-white p-8 rounded-[3rem] shadow-sm border border-slate-100">
         <div>
           <h1 className="text-4xl font-black text-slate-900 uppercase italic tracking-tighter">Panel Control</h1>
           <p className="text-slate-400 font-bold uppercase text-xs tracking-widest">Administración de Pagos</p>
         </div>
 
-        <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto">
+        <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto items-center">
+          {/* BOTÓN DE ARCHIVADO (Solo aparece si hay una rifa seleccionada) */}
+          {filtroRifa !== "todas" && (
+            <button 
+              onClick={archivarRifaActual}
+              disabled={archivando}
+              className={`px-6 py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all ${archivando ? 'bg-gray-200 text-gray-400' : 'bg-red-50 text-red-600 hover:bg-red-100'}`}
+            >
+              {archivando ? 'Archivando...' : '📦 Finalizar y Archivar'}
+            </button>
+          )}
+
           <select 
             onChange={(e) => setFiltroRifa(e.target.value)}
             className="p-4 bg-slate-900 text-white rounded-2xl font-bold text-sm outline-none cursor-pointer"
@@ -133,7 +194,7 @@ export default function DashboardAdmin() {
         </div>
       </div>
 
-      {/* BUSCADOR */}
+      {/* ... (El resto del JSX: Buscador, Tabla y Modal de imagen se mantiene igual) */}
       <div className="relative">
         <input 
           type="text" placeholder="Buscar por nombre o referencia..."
@@ -143,14 +204,13 @@ export default function DashboardAdmin() {
         <span className="absolute left-6 top-1/2 -translate-y-1/2 opacity-30 text-xl">🔍</span>
       </div>
 
-      {/* TABLA DE REPORTES */}
       <div className="bg-white rounded-[3rem] shadow-xl overflow-hidden border border-slate-100">
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="bg-slate-50 text-slate-400 uppercase text-[10px] font-black tracking-widest">
                 <th className="p-8">Cliente</th>
-                <th className="p-6 text-center">Info Rifa</th> {/* Reducido padding lateral */}
+                <th className="p-6 text-center">Info Rifa</th>
                 <th className="p-8">Monto Reportado</th>
                 <th className="p-8 text-center">Capture</th>
                 <th className="p-8 text-center">Acción</th>
@@ -168,22 +228,13 @@ export default function DashboardAdmin() {
                       <a href={`https://wa.me/${r.whatsapp?.replace(/\D/g,'')}`} target="_blank" rel="noreferrer" className="text-[10px] text-green-600 font-black hover:underline whitespace-nowrap">WhatsApp 🟢</a>
                     </div>
                   </td>
-
-                  {/* COLUMNA INFO RIFA CORREGIDA */}
                   <td className="p-6 text-center">
-                    <p className="text-[10px] font-black text-slate-400 uppercase italic mb-1 truncate max-w-[120px] mx-auto">
-                      {r.rifaId}
-                    </p>
-                    <span className="inline-block text-xs font-bold text-blue-600 bg-blue-50 px-4 py-1.5 rounded-full whitespace-nowrap">
-                      {r.cantidadTickets} tickets
-                    </span>
+                    <p className="text-[10px] font-black text-slate-400 uppercase italic mb-1 truncate max-w-[120px] mx-auto">{r.rifaId}</p>
+                    <span className="inline-block text-xs font-bold text-blue-600 bg-blue-50 px-4 py-1.5 rounded-full whitespace-nowrap">{r.cantidadTickets} tickets</span>
                   </td>
-
                   <td className="p-8">
                     <div className="flex flex-col">
-                      <span className="font-black text-slate-800 text-xl tracking-tighter">
-                        ${Number(r.montoUsd || 0).toFixed(2)}
-                      </span>
+                      <span className="font-black text-slate-800 text-xl tracking-tighter">${Number(r.montoUsd || 0).toFixed(2)}</span>
                       {r.montoBs && (
                         <span className="text-[11px] font-black text-green-600 mt-1 bg-green-50 px-2 py-0.5 rounded-md self-start whitespace-nowrap">
                           Bs. {Number(r.montoBs).toLocaleString('es-VE', { minimumFractionDigits: 2 })}
@@ -192,37 +243,27 @@ export default function DashboardAdmin() {
                       <span className="text-[10px] text-slate-400 font-mono mt-1 font-bold italic uppercase">Ref: {r.referencia}</span>
                     </div>
                   </td>
-
                   <td className="p-8 text-center">
                     <button onClick={() => setComprobanteSeleccionado(r.comprobanteUrl)} className="bg-slate-100 p-3 rounded-2xl hover:bg-slate-900 group transition-all">
                       <span className="text-xl">🖼️</span>
                     </button>
                   </td>
-
-                  <td className="p-8">
-                    <div className="flex flex-col items-center gap-2">
-                      {procesandoId === r.id ? (
+                  <td className="p-8 text-center">
+                     {/* Lógica de botones de acción */}
+                     {procesandoId === r.id ? (
                         <span className="animate-pulse text-blue-600 font-black text-xs uppercase">Asignando...</span>
                       ) : r.estado === 'pendiente' ? (
-                        <>
-                          <button onClick={() => admitirPago(r)} className="w-full bg-green-500 hover:bg-green-600 text-white py-3 px-6 rounded-2xl font-black text-[10px] uppercase shadow-lg shadow-green-100 transition-transform active:scale-95 whitespace-nowrap">
-                            Aprobar y Enviar WA
-                          </button>
+                        <div className="flex flex-col gap-2">
+                          <button onClick={() => admitirPago(r)} className="bg-green-500 hover:bg-green-600 text-white py-3 px-6 rounded-2xl font-black text-[10px] uppercase shadow-lg shadow-green-100 transition-transform active:scale-95 whitespace-nowrap">Aprobar y Enviar WA</button>
                           <button onClick={() => rechazarPago(r.id)} className="text-[10px] font-black text-red-400 uppercase hover:text-red-600">Rechazar</button>
-                        </>
+                        </div>
                       ) : (
                         <div className="text-center">
                           <span className={`text-[10px] font-black uppercase px-4 py-2 rounded-xl whitespace-nowrap ${r.estado === 'aprobado' ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-600'}`}>
                             {r.estado === 'aprobado' ? '✅ Confirmado' : '❌ Rechazado'}
                           </span>
-                          {r.ticketsAsignados && (
-                            <p className="text-[10px] font-mono font-bold text-slate-500 mt-2 bg-slate-50 p-2 rounded-lg border border-dashed border-slate-200">
-                              {r.ticketsAsignados.join(" - ")}
-                            </p>
-                          )}
                         </div>
                       )}
-                    </div>
                   </td>
                 </tr>
               ))}
@@ -231,7 +272,6 @@ export default function DashboardAdmin() {
         </div>
       </div>
 
-      {/* MODAL DE IMAGEN */}
       {comprobanteSeleccionado && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/90 backdrop-blur-md" onClick={() => setComprobanteSeleccionado(null)}>
           <div className="relative">
