@@ -276,6 +276,10 @@ export default function ProcesoPago({
             <span className="text-xs font-bold uppercase truncate ml-4">{nombre}</span>
           </div>
           <div className="flex justify-between border-b border-slate-200 pb-1">
+            <span className="text-[9px] font-black text-slate-400 uppercase">WhatsApp</span>
+            <span className="text-xs font-bold uppercase">{whatsappFormateado}</span>
+          </div>
+          <div className="flex justify-between border-b border-slate-200 pb-1">
             <span className="text-[9px] font-black text-slate-400 uppercase">Método</span>
             <span className="text-xs font-bold uppercase">{metodo}</span>
           </div>
