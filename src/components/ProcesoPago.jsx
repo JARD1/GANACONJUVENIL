@@ -17,6 +17,7 @@ export default function ProcesoPago({
   const [referencia, setReferencia] = useState("");
   const [archivo, setArchivo] = useState(null);
   const [cargando, setCargando] = useState(false);
+  const [pagoExitoso, setPagoExitoso] = useState(false);
   const [mostrarConfirmacion, setMostrarConfirmacion] = useState(false);
   const [whatsappFormateado, setWhatsappFormateado] = useState(""); 
   const [ticketsTemporales, setTicketsTemporales] = useState([]);
@@ -36,31 +37,22 @@ export default function ProcesoPago({
   const totalUSD = (Number(cantidad) || 0) * precioTicket;
   const totalBS = tasaExterna ? totalUSD * tasaExterna : 0;
 
-  // --- LÓGICA DE LIMPIEZA PROFUNDA (RESERVAS > 30 MIN) ---
+  // --- LÓGICA DE LIMPIEZA ---
   const ejecutarLimpiezaReservasAntiguas = async () => {
     try {
       const tiempoLimite = Date.now() - (30 * 60 * 1000); 
       const q = query(collection(db, "reservas"), where("expiracion", "<", tiempoLimite));
       const snapshot = await getDocs(q);
-      
       if (!snapshot.empty) {
         const batch = writeBatch(db);
         snapshot.forEach((d) => batch.delete(d.ref));
         await batch.commit();
-        console.log("🧹 Limpieza física completada");
       }
-    } catch (error) {
-      console.error("Error en autolimpieza:", error);
-    }
+    } catch (error) { console.error("Error en autolimpieza:", error); }
   };
 
-  // Intento de limpieza al cerrar/recargar
   useEffect(() => {
-    const limpiarReserva = async () => {
-      if (reservaId) {
-        await deleteDoc(doc(db, "reservas", reservaId)).catch(() => {}); 
-      }
-    };
+    const limpiarReserva = async () => { if (reservaId) await deleteDoc(doc(db, "reservas", reservaId)).catch(() => {}); };
     const handleBeforeUnload = () => { if (reservaId) limpiarReserva(); };
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => {
@@ -69,16 +61,13 @@ export default function ProcesoPago({
     };
   }, [reservaId]);
 
-  const mostrarAviso = (tipo, mensaje) => {
-    setModalStatus({ visible: true, tipo, mensaje });
-  };
+  const mostrarAviso = (tipo, mensaje) => { setModalStatus({ visible: true, tipo, mensaje }); };
 
   const generarHashSeguridad = (data) => {
     const payload = `${data.nombre}-${data.referencia}-${data.whatsapp}-${data.montoUsd}-${data.tickets.join(',')}-${SECRET_KEY}`;
     return CryptoJS.SHA256(payload).toString();
   };
 
-  // --- PASO 1: RESERVAR Y LIMPIAR ---
   const abrirModalConfirmacion = async (e) => {
     e.preventDefault();
     if (cantidad < 1) return mostrarAviso('error', 'La cantidad debe ser al menos 1.');
@@ -88,21 +77,14 @@ export default function ProcesoPago({
     if (numLimpio.startsWith('0')) numLimpio = numLimpio.substring(1); 
     if (!numLimpio.startsWith('58')) numLimpio = '58' + numLimpio; 
     
-    if (numLimpio.length !== 12) {
-      return mostrarAviso('error', 'WhatsApp inválido. Debe tener 11 dígitos.');
-    }
+    if (numLimpio.length !== 12) return mostrarAviso('error', 'WhatsApp inválido. Debe tener 11 dígitos.');
 
     setCargando(true);
-
     try {
       await ejecutarLimpiezaReservasAntiguas();
-
       const qRef = query(collection(db, "pagos"), where("referencia", "==", referencia), where("metodoPago", "==", metodo));
       const resRef = await getDocs(qRef);
-      if (!resRef.empty) {
-        setCargando(false);
-        return mostrarAviso('error', 'Esta referencia ya fue usada.');
-      }
+      if (!resRef.empty) { setCargando(false); return mostrarAviso('error', 'Esta referencia ya fue usada.'); }
 
       const qVendidos = query(collection(db, "pagos"), where("rifaId", "==", rifaId));
       const snapVendidos = await getDocs(qVendidos);
@@ -112,9 +94,7 @@ export default function ProcesoPago({
       const snapReservas = await getDocs(query(collection(db, "reservas"), where("rifaId", "==", rifaId)));
       snapReservas.forEach(doc => {
         const data = doc.data();
-        if (data.expiracion > Date.now()) {
-          data.tickets?.forEach(n => ocupados.add(n.toString()));
-        }
+        if (data.expiracion > Date.now()) data.tickets?.forEach(n => ocupados.add(n.toString()));
       });
 
       let disponibles = [];
@@ -123,10 +103,7 @@ export default function ProcesoPago({
         if (!ocupados.has(n)) disponibles.push(n);
       }
 
-      if (disponibles.length < cantidad) {
-        setCargando(false);
-        return mostrarAviso('error', `Solo quedan ${disponibles.length} números.`);
-      }
+      if (disponibles.length < cantidad) { setCargando(false); return mostrarAviso('error', `Solo quedan ${disponibles.length} números.`); }
 
       const asignados = [];
       for (let i = 0; i < cantidad; i++) {
@@ -135,29 +112,19 @@ export default function ProcesoPago({
       }
 
       const docReserva = await addDoc(collection(db, "reservas"), {
-        rifaId,
-        tickets: asignados,
-        expiracion: Date.now() + 600000, 
-        createdAt: serverTimestamp()
+        rifaId, tickets: asignados, expiracion: Date.now() + 600000, createdAt: serverTimestamp()
       });
 
       setReservaId(docReserva.id);
       setTicketsTemporales(asignados);
       setWhatsappFormateado(numLimpio); 
       setMostrarConfirmacion(true); 
-
-    } catch (error) {
-      console.error(error);
-      mostrarAviso('error', 'Error al reservar números.');
-    } finally {
-      setCargando(false);
-    }
+    } catch (error) { console.error(error); mostrarAviso('error', 'Error al reservar números.'); }
+    finally { setCargando(false); }
   };
 
   const ejecutarEnvio = async () => {
-    setMostrarConfirmacion(false);
     setCargando(true);
-
     try {
       const formData = new FormData();
       formData.append("image", archivo);
@@ -187,13 +154,11 @@ export default function ProcesoPago({
 
       if (reservaId) await deleteDoc(doc(db, "reservas", reservaId));
 
-      // MENSAJE DE ÉXITO ORIGINAL RESTAURADO
-      mostrarAviso('exito', `¡Pago enviado! \n 🎟️Recuerde que le enviaremos un mensaje por WhatsApp con sus números asignados una vez verifiquemos el pago.🎟️`);
-      
-      setNombre(""); setWhatsapp(""); setMetodo(""); setReferencia(""); setArchivo(null); 
-      setCantidad(1); setTicketsTemporales([]); setReservaId(null);
+      setPagoExitoso(true); 
+      // LA LIMPIEZA SE MOVIÓ AL BOTÓN "CERRAR Y VOLVER"
     } catch (error) {
       console.error(error);
+      setMostrarConfirmacion(false);
       mostrarAviso('error', 'Error al procesar el pago.');
     } finally {
       setCargando(false);
@@ -202,11 +167,21 @@ export default function ProcesoPago({
 
   const cancelarYLibrear = async () => {
     setMostrarConfirmacion(false);
-    if (reservaId) {
-      await deleteDoc(doc(db, "reservas", reservaId));
-      setReservaId(null);
-    }
+    if (reservaId) { await deleteDoc(doc(db, "reservas", reservaId)); setReservaId(null); }
     setTicketsTemporales([]);
+  };
+
+  const limpiarTodoYSalir = () => {
+    setMostrarConfirmacion(false);
+    setPagoExitoso(false);
+    setNombre("");
+    setWhatsapp("");
+    setMetodo("");
+    setReferencia("");
+    setArchivo(null);
+    setCantidad(1);
+    setTicketsTemporales([]);
+    setReservaId(null);
   };
 
   return (
@@ -282,16 +257,15 @@ export default function ProcesoPago({
         </form>
       </div>
 
-      {/* --- MODAL DE CONFIRMACIÓN --- */}
+     {/* --- MODAL DE CONFIRMACIÓN / ÉXITO --- */}
 {mostrarConfirmacion && (
   <div className="fixed inset-0 z-[100] flex items-center justify-center p-2 bg-slate-900/60 backdrop-blur-md">
-    <div className="bg-white w-full max-w-sm rounded-[2rem] shadow-2xl overflow-hidden">
-      {/* Reducimos el padding del encabezado */}
-      <div className="bg-slate-900 p-4 text-center text-white font-black uppercase text-xs tracking-widest">Confirma tus datos</div>
+    <div className="bg-white w-full max-w-sm rounded-[2rem] shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-300">
+      <div className="bg-slate-900 p-4 text-center text-white font-black uppercase text-xs tracking-widest">
+        {pagoExitoso ? '✅ Reporte Exitoso' : 'Confirma tus datos'}
+      </div>
       
-      {/* Reducimos el padding general de p-8 a p-5 */}
       <div className="p-5">
-        {/* Reducimos el padding interno de p-6 a p-4 y el espacio entre líneas de space-y-3 a space-y-2 */}
         <div className="space-y-2 bg-slate-50 p-4 rounded-2xl mb-4">
           <div className="flex justify-between border-b border-slate-200 pb-1">
             <span className="text-[9px] font-black text-slate-400 uppercase">Rifa</span>
@@ -300,10 +274,6 @@ export default function ProcesoPago({
           <div className="flex justify-between border-b border-slate-200 pb-1">
             <span className="text-[9px] font-black text-slate-400 uppercase">Cliente</span>
             <span className="text-xs font-bold uppercase truncate ml-4">{nombre}</span>
-          </div>
-          <div className="flex justify-between border-b border-slate-200 pb-1">
-            <span className="text-[9px] font-black text-slate-400 uppercase">WhatsApp</span>
-            <span className="text-xs font-bold">+{whatsappFormateado}</span>
           </div>
           <div className="flex justify-between border-b border-slate-200 pb-1">
             <span className="text-[9px] font-black text-slate-400 uppercase">Método</span>
@@ -317,11 +287,26 @@ export default function ProcesoPago({
             <span className="text-[9px] font-black text-slate-400 uppercase">Tickets</span>
             <span className="text-md font-black text-blue-600">{cantidad}</span>
           </div>
+
+          {/* NUEVA SECCIÓN: LISTA DE TICKETS ASIGNADOS */}
+          <div className="py-2">
+            <span className="text-[9px] font-black text-slate-400 uppercase block mb-2 text-center">Tus Números Generados</span>
+            <div className="flex flex-wrap justify-center gap-1 max-h-24 overflow-y-auto p-2 bg-white rounded-xl border border-slate-200">
+              {ticketsTemporales.length > 0 ? (
+                ticketsTemporales.map((t, idx) => (
+                  <span key={idx} className="bg-blue-600 text-white text-[10px] font-black px-2 py-1 rounded-md shadow-sm">
+                    {t}
+                  </span>
+                ))
+              ) : (
+                <span className="text-[10px] font-bold text-slate-300 italic">Generando números...</span>
+              )}
+            </div>
+          </div>
           
           <div className="mt-3 space-y-1">
-            {/* Montos más compactos con p-3 */}
             <div className="bg-slate-900 p-3 rounded-xl text-white flex justify-between items-center">
-              <span className="text-[9px] font-black uppercase opacity-60">Total USD</span>
+              <span className="text-[9px] font-black uppercase opacity-60">Total {cantidad} Tickets</span>
               <span className="text-lg font-black text-blue-400">${totalUSD.toFixed(2)}</span>
             </div>
             {metodo === "pagomovil" && (
@@ -330,39 +315,57 @@ export default function ProcesoPago({
                   <span className="text-[9px] font-black uppercase opacity-80">Monto en Bs.</span>
                   <span className="text-lg font-black">{totalBS.toLocaleString('es-VE', { minimumFractionDigits: 2 })}</span>
                 </div>
-                {/* Tasa pequeña integrada */}
-                <div className="text-right text-[8px] font-black opacity-60 uppercase">
-                  Tasa: {tasaExterna.toFixed(2)}
-                </div>
               </div>
             )}
           </div>
         </div>
 
-        <p className="text-[8px] text-center text-slate-400 mb-4 font-bold uppercase italic leading-tight">
-          Los números se apartarán mientras este modal esté abierto.
-        </p>
-
         <div className="space-y-2">
-          <button onClick={ejecutarEnvio} className="w-full bg-slate-900 text-white py-3 rounded-xl font-black uppercase text-[10px] shadow-lg active:scale-95 transition-transform">
-            SÍ, ENVIAR ✅
-          </button>
-          <button onClick={cancelarYLibrear} className="w-full text-slate-400 py-1 font-black uppercase text-[9px] hover:text-red-500 transition-colors">
-            CANCELAR Y LIBERAR
-          </button>
+          {!pagoExitoso ? (
+            <>
+              <button onClick={ejecutarEnvio} disabled={cargando} 
+                className={`w-full py-3 rounded-xl font-black uppercase text-[10px] shadow-lg transition-all ${cargando ? 'bg-slate-400' : 'bg-slate-900 text-white active:scale-95'}`}>
+                {cargando ? 'PROCESANDO...' : 'SÍ, ENVIAR ✅'}
+              </button>
+              {!cargando && (
+                <button onClick={cancelarYLibrear} className="w-full text-slate-400 py-1 font-black uppercase text-[9px]">
+                  CANCELAR Y LIBERAR
+                </button>
+              )}
+              <p className="text-[8px] text-center text-slate-400 mt-2 font-bold uppercase italic leading-tight">👑 ganaconjuvenil.com 👑</p>
+            </>
+          ) : (
+            <div className="space-y-3 animate-in slide-in-from-bottom-2 duration-500">
+              <div className="w-full bg-green-500 text-white py-4 rounded-xl font-black uppercase text-[10px] text-center shadow-xl border-b-4 border-green-700">
+                ¡PAGO ENVIADO CON ÉXITO! 🎟️
+              </div>
+              <div className="bg-yellow-100 border border-yellow-200 p-3 rounded-lg text-center">
+                 <p className="text-[10px] text-yellow-800 font-black uppercase">
+                   📸 ¡TOMA UN CAPTURE AHORA!
+                 </p>
+                 <p className="text-[8px] text-yellow-700 font-bold mt-1">
+                   Guarda tus números. Verificaremos tu pago a la brevedad.
+                 </p>
+              </div>
+              <button onClick={limpiarTodoYSalir} 
+                className="w-full text-slate-500 py-2 font-black uppercase text-[9px] underline">
+                CERRAR Y FINALIZAR
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </div>
   </div>
 )}
 
-      {/* --- MODAL STATUS --- */}
-      {modalStatus.visible && (
+      {/* MODAL STATUS (Solo para errores) */}
+      {modalStatus.visible && modalStatus.tipo === 'error' && (
         <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm">
           <div className="bg-white w-full max-w-xs rounded-[2.5rem] shadow-2xl overflow-hidden text-center p-8">
-            <div className="text-5xl mb-4">{modalStatus.tipo === 'exito' ? '✅' : '⚠️'}</div>
-            <h4 className="text-xl font-black text-slate-900 uppercase">{modalStatus.tipo === 'exito' ? '¡LISTO!' : '¡ERROR!'}</h4>
-            <p className="text-xs font-bold text-slate-400 uppercase mb-6 leading-relaxed whitespace-pre-line">{modalStatus.mensaje}</p>
+            <div className="text-5xl mb-4">⚠️</div>
+            <h4 className="text-xl font-black text-slate-900 uppercase">¡ERROR!</h4>
+            <p className="text-xs font-bold text-slate-400 uppercase mb-6 leading-relaxed">{modalStatus.mensaje}</p>
             <button onClick={() => setModalStatus({ ...modalStatus, visible: false })} className="w-full py-4 rounded-2xl font-black text-white bg-slate-900 uppercase text-[10px]">ENTENDIDO</button>
           </div>
         </div>
