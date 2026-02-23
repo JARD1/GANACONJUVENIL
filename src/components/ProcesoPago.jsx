@@ -310,7 +310,7 @@ export default function ProcesoPago({
           
           <div className="mt-3 space-y-1">
             <div className="bg-slate-900 p-3 rounded-xl text-white flex justify-between items-center">
-              <span className="text-[9px] font-black uppercase opacity-60">Total {cantidad} Tickets</span>
+              <span className="text-[9px] font-black uppercase opacity-60">Monto en USD.</span>
               <span className="text-lg font-black text-blue-400">${totalUSD.toFixed(2)}</span>
             </div>
             {metodo === "pagomovil" && (
@@ -351,6 +351,7 @@ export default function ProcesoPago({
                    Guarda tus números. Verificaremos tu pago a la brevedad.
                  </p>
               </div>
+              <p className="text-[8px] text-center text-slate-400 mt-2 font-bold uppercase italic leading-tight">👑 ganaconjuvenil.com 👑</p>
               <button onClick={limpiarTodoYSalir} 
                 className="w-full text-slate-500 py-2 font-black uppercase text-[9px] underline">
                 CERRAR Y FINALIZAR
