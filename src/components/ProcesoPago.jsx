@@ -283,39 +283,78 @@ export default function ProcesoPago({
       </div>
 
       {/* --- MODAL DE CONFIRMACIÓN --- */}
-      {mostrarConfirmacion && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md">
-          <div className="bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden">
-            <div className="bg-slate-900 p-6 text-center text-white font-black uppercase tracking-widest">Confirma tus datos</div>
-            <div className="p-8">
-              <div className="space-y-3 bg-slate-50 p-6 rounded-3xl mb-6">
-                <div className="flex justify-between border-b pb-2"><span className="text-[10px] font-black text-slate-400 uppercase">Rifa</span><span className="text-sm font-bold uppercase">{rifaId}</span></div>
-                <div className="flex justify-between border-b pb-2"><span className="text-[10px] font-black text-slate-400 uppercase">Cliente</span><span className="text-sm font-bold uppercase">{nombre}</span></div>
-                <div className="flex justify-between border-b pb-2"><span className="text-[10px] font-black text-slate-400 uppercase">WhatsApp</span><span className="text-sm font-bold">+{whatsappFormateado}</span></div>
-                <div className="flex justify-between border-b pb-2"><span className="text-[10px] font-black text-slate-400 uppercase">Método</span><span className="text-sm font-bold uppercase">{metodo}</span></div>
-                <div className="flex justify-between border-b pb-2"><span className="text-[10px] font-black text-slate-400 uppercase">Referencia</span><span className="text-sm font-bold uppercase">{referencia}</span></div>
-                <div className="flex justify-between border-b pb-2"><span className="text-[10px] font-black text-slate-400 uppercase">Tickets</span><span className="text-lg font-black">{cantidad}</span></div>
-                
-                <div className="mt-4 space-y-2">
-                  <div className="bg-slate-900 p-4 rounded-2xl text-white flex justify-between items-center">
-                    <span className="text-[10px] font-black uppercase opacity-60">Total USD</span>
-                    <span className="text-xl font-black text-blue-400">${totalUSD.toFixed(2)}</span>
-                  </div>
-                  {metodo === "pagomovil" && (
-                    <div className="bg-blue-600 p-4 rounded-2xl text-white flex justify-between items-center shadow-lg">
-                      <span className="text-[10px] font-black uppercase opacity-80">Monto en Bs.</span>
-                      <span className="text-lg font-black">{totalBS.toLocaleString('es-VE', { minimumFractionDigits: 2 })}</span>
-                    </div>
-                  )}
+{mostrarConfirmacion && (
+  <div className="fixed inset-0 z-[100] flex items-center justify-center p-2 bg-slate-900/60 backdrop-blur-md">
+    <div className="bg-white w-full max-w-sm rounded-[2rem] shadow-2xl overflow-hidden">
+      {/* Reducimos el padding del encabezado */}
+      <div className="bg-slate-900 p-4 text-center text-white font-black uppercase text-xs tracking-widest">Confirma tus datos</div>
+      
+      {/* Reducimos el padding general de p-8 a p-5 */}
+      <div className="p-5">
+        {/* Reducimos el padding interno de p-6 a p-4 y el espacio entre líneas de space-y-3 a space-y-2 */}
+        <div className="space-y-2 bg-slate-50 p-4 rounded-2xl mb-4">
+          <div className="flex justify-between border-b border-slate-200 pb-1">
+            <span className="text-[9px] font-black text-slate-400 uppercase">Rifa</span>
+            <span className="text-xs font-bold uppercase truncate ml-4">{rifaId || 'N/A'}</span>
+          </div>
+          <div className="flex justify-between border-b border-slate-200 pb-1">
+            <span className="text-[9px] font-black text-slate-400 uppercase">Cliente</span>
+            <span className="text-xs font-bold uppercase truncate ml-4">{nombre}</span>
+          </div>
+          <div className="flex justify-between border-b border-slate-200 pb-1">
+            <span className="text-[9px] font-black text-slate-400 uppercase">WhatsApp</span>
+            <span className="text-xs font-bold">+{whatsappFormateado}</span>
+          </div>
+          <div className="flex justify-between border-b border-slate-200 pb-1">
+            <span className="text-[9px] font-black text-slate-400 uppercase">Método</span>
+            <span className="text-xs font-bold uppercase">{metodo}</span>
+          </div>
+          <div className="flex justify-between border-b border-slate-200 pb-1">
+            <span className="text-[9px] font-black text-slate-400 uppercase">Referencia</span>
+            <span className="text-xs font-bold uppercase">{referencia}</span>
+          </div>
+          <div className="flex justify-between pb-1">
+            <span className="text-[9px] font-black text-slate-400 uppercase">Tickets</span>
+            <span className="text-md font-black text-blue-600">{cantidad}</span>
+          </div>
+          
+          <div className="mt-3 space-y-1">
+            {/* Montos más compactos con p-3 */}
+            <div className="bg-slate-900 p-3 rounded-xl text-white flex justify-between items-center">
+              <span className="text-[9px] font-black uppercase opacity-60">Total USD</span>
+              <span className="text-lg font-black text-blue-400">${totalUSD.toFixed(2)}</span>
+            </div>
+            {metodo === "pagomovil" && (
+              <div className="bg-blue-600 p-3 rounded-xl text-white shadow-lg">
+                <div className="flex justify-between items-center">
+                  <span className="text-[9px] font-black uppercase opacity-80">Monto en Bs.</span>
+                  <span className="text-lg font-black">{totalBS.toLocaleString('es-VE', { minimumFractionDigits: 2 })}</span>
+                </div>
+                {/* Tasa pequeña integrada */}
+                <div className="text-right text-[8px] font-black opacity-60 uppercase">
+                  Tasa: {tasaExterna.toFixed(2)}
                 </div>
               </div>
-              <p className="text-[9px] text-center text-slate-400 mb-4 font-bold uppercase italic">Los números seleccionados estarán apartados para ti mientras este modal esté abierto.</p>
-              <button onClick={ejecutarEnvio} className="w-full bg-slate-900 text-white py-4 rounded-2xl font-black uppercase text-xs">SÍ, ENVIAR ✅</button>
-              <button onClick={cancelarYLibrear} className="w-full text-slate-400 py-2 font-black uppercase text-[10px] mt-2">CANCELAR Y LIBERAR</button>
-            </div>
+            )}
           </div>
         </div>
-      )}
+
+        <p className="text-[8px] text-center text-slate-400 mb-4 font-bold uppercase italic leading-tight">
+          Los números se apartarán mientras este modal esté abierto.
+        </p>
+
+        <div className="space-y-2">
+          <button onClick={ejecutarEnvio} className="w-full bg-slate-900 text-white py-3 rounded-xl font-black uppercase text-[10px] shadow-lg active:scale-95 transition-transform">
+            SÍ, ENVIAR ✅
+          </button>
+          <button onClick={cancelarYLibrear} className="w-full text-slate-400 py-1 font-black uppercase text-[9px] hover:text-red-500 transition-colors">
+            CANCELAR Y LIBERAR
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+)}
 
       {/* --- MODAL STATUS --- */}
       {modalStatus.visible && (
