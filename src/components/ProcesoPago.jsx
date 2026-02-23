@@ -9,7 +9,7 @@ export default function ProcesoPago({
   tasaExterna = 1, 
   maxTickets = 1000 
 }) {
-  // --- ESTADOS ---
+  // --- ESTADOS (SIN CAMBIOS) ---
   const [cantidad, setCantidad] = useState(1);
   const [nombre, setNombre] = useState("");
   const [whatsapp, setWhatsapp] = useState(""); 
@@ -37,7 +37,7 @@ export default function ProcesoPago({
   const totalUSD = (Number(cantidad) || 0) * precioTicket;
   const totalBS = tasaExterna ? totalUSD * tasaExterna : 0;
 
-  // --- LÓGICA DE LIMPIEZA ---
+  // --- LÓGICA DE LIMPIEZA (SIN CAMBIOS) ---
   const ejecutarLimpiezaReservasAntiguas = async () => {
     try {
       const tiempoLimite = Date.now() - (30 * 60 * 1000); 
@@ -153,9 +153,7 @@ export default function ProcesoPago({
       });
 
       if (reservaId) await deleteDoc(doc(db, "reservas", reservaId));
-
       setPagoExitoso(true); 
-      // LA LIMPIEZA SE MOVIÓ AL BOTÓN "CERRAR Y VOLVER"
     } catch (error) {
       console.error(error);
       setMostrarConfirmacion(false);
@@ -186,56 +184,57 @@ export default function ProcesoPago({
 
   return (
     <div className="space-y-6">
-      {/* SECCIÓN 1: CANTIDAD */}
-      <div className="bg-white p-6 rounded-[2.5rem] shadow-sm border-[3px] border-slate-100">
-        <h2 className="text-xl font-black text-slate-800 mb-4 italic uppercase">1. Cantidad de boletos</h2>
+      {/* SECCIÓN 1: CANTIDAD DARK */}
+      <div className="bg-slate-900/80 backdrop-blur-md p-6 rounded-[2.5rem] shadow-2xl border border-slate-700/50">
+        <h2 className="text-xl font-black text-white mb-4 italic uppercase">1. Cantidad de boletos</h2>
         <div className="grid grid-cols-3 gap-2 mb-4">
           {[1, 5, 10, 20, 50, 100].map(num => (
             <button key={num} type="button" onClick={() => setCantidad(num)}
-              className={`py-3 rounded-2xl font-black transition-all border-b-4 active:border-b-0 active:translate-y-1 ${cantidad === num ? 'bg-blue-600 text-white border-blue-800' : 'bg-slate-100 text-slate-500 border-slate-200 hover:bg-slate-200'}`}>
+              className={`py-3 rounded-2xl font-black transition-all active:scale-95 ${cantidad === num ? 'bg-blue-600 text-white shadow-[0_0_15px_rgba(37,99,235,0.4)]' : 'bg-slate-800 text-slate-400 hover:bg-slate-750'}`}>
               +{num}
             </button>
           ))}
         </div>
         <input type="number" value={cantidad} onChange={(e) => setCantidad(Math.max(1, parseInt(e.target.value) || 1))}
-          className="w-full p-4 bg-slate-50 border-2 border-dashed border-slate-200 rounded-2xl text-center font-black text-2xl outline-none" />
+          className="w-full p-4 bg-slate-950/50 border-2 border-dashed border-slate-700 rounded-2xl text-center font-black text-2xl outline-none text-blue-500 focus:border-blue-600 transition-colors" />
         
-        <div className="mt-4 space-y-2 text-white">
-            <div className="flex justify-between items-center p-5 bg-slate-900 rounded-2xl">
-                <span className="text-[10px] uppercase font-bold opacity-50">Total Divisas</span>
-                <span className="text-3xl font-black text-blue-400">${totalUSD.toFixed(2)}</span>
+        <div className="mt-4 space-y-2">
+            <div className="flex justify-between items-center p-5 bg-slate-950 rounded-2xl border border-slate-800">
+                <span className="text-[10px] uppercase font-black text-slate-500 tracking-widest">Total Divisas</span>
+                <span className="text-3xl font-black text-blue-500">${totalUSD.toFixed(2)}</span>
             </div>
-            <div className="flex justify-between items-center p-5 bg-blue-600 rounded-2xl shadow-lg">
-                <span className="text-[10px] font-bold opacity-80 uppercase">Monto en Bs.</span>
-                <span className="text-2xl font-black">{totalBS.toLocaleString('es-VE', { minimumFractionDigits: 2 })}</span>
+            <div className="flex justify-between items-center p-5 bg-blue-600 rounded-2xl shadow-[0_10px_20px_rgba(37,99,235,0.3)]">
+                <span className="text-[10px] font-black text-blue-100 uppercase tracking-widest">Monto en Bs.</span>
+                <span className="text-2xl font-black text-white">{totalBS.toLocaleString('es-VE', { minimumFractionDigits: 2 })}</span>
             </div>
+            <p className="text-xs text-slate-500 italic">• Tasa Oficial BCV •</p>
         </div>
       </div>
 
-      {/* SECCIÓN 2: FORMULARIO */}
-      <div className="bg-white p-6 rounded-[2.5rem] shadow-sm border-[3px] border-slate-100">
-        <h2 className="text-xl font-black text-slate-800 mb-4 italic uppercase">2. Confirmar Pago</h2>
+      {/* SECCIÓN 2: FORMULARIO DARK */}
+      <div className="bg-slate-900/80 backdrop-blur-md p-6 rounded-[2.5rem] shadow-2xl border border-slate-700/50">
+        <h2 className="text-xl font-black text-white mb-4 italic uppercase">2. Confirmar Pago</h2>
         <form onSubmit={abrirModalConfirmacion} className="space-y-4">
           <input type="text" placeholder="Nombre completo" required value={nombre} onChange={(e) => setNombre(e.target.value)}
-            className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl outline-none font-bold" />
+            className="w-full p-4 bg-slate-950/50 border border-slate-800 rounded-2xl outline-none font-bold text-white focus:border-blue-600 transition-all placeholder:text-slate-600" />
           
           <div className="relative flex items-center">
-            <span className="absolute left-4 font-black text-slate-400 border-r-2 border-slate-200 pr-3">+58</span>
+            <span className="absolute left-4 font-black text-blue-500 border-r border-slate-800 pr-3">+58</span>
             <input type="tel" placeholder="0412 000 0000" required value={whatsapp} onChange={(e) => setWhatsapp(e.target.value)}
-              className="w-full p-4 pl-16 bg-slate-50 border-2 border-slate-100 rounded-2xl outline-none font-bold" />
+              className="w-full p-4 pl-16 bg-slate-950/50 border border-slate-800 rounded-2xl outline-none font-bold text-white focus:border-blue-600 transition-all placeholder:text-slate-600" />
           </div>
 
           <select required value={metodo} onChange={(e) => setMetodo(e.target.value)}
-            className="w-full p-4 bg-white border-2 border-slate-100 rounded-2xl font-black text-slate-700 outline-none">
-            <option value="" disabled>-- Método de pago --</option>
-            <option value="pagomovil">Pago Móvil (Bs)</option>
-            <option value="zelle">Zelle (USD)</option>
-            <option value="binance">Binance Pay</option>
+            className="w-full p-4 bg-slate-950 border border-slate-800 rounded-2xl font-black text-slate-300 outline-none focus:border-blue-600">
+            <option value="" disabled className="bg-slate-900">-- Método de pago --</option>
+            <option value="pagomovil" className="bg-slate-900 text-white">Pago Móvil (Bs)</option>
+            <option value="zelle" className="bg-slate-900 text-white">Zelle (USD)</option>
+            <option value="binance" className="bg-slate-900 text-white">Binance Pay</option>
           </select>
 
           {metodo && (
-            <div className="p-5 bg-blue-50 border-2 border-blue-100 rounded-2xl text-xs font-bold text-slate-700">
-              <h3 className="font-black text-blue-600 uppercase mb-1 italic">Transferir a:</h3>
+            <div className="p-5 bg-blue-600/10 border border-blue-500/20 rounded-2xl text-xs font-bold text-slate-300 animate-in fade-in slide-in-from-top-2">
+              <h3 className="font-black text-blue-500 uppercase mb-1 italic">Transferir a:</h3>
               {metodo === "pagomovil" && <p>{datosCuentas.pagomovil.banco} | {datosCuentas.pagomovil.tlf} | {datosCuentas.pagomovil.ci}</p>}
               {metodo === "zelle" && <p>{datosCuentas.zelle.correo} | {datosCuentas.zelle.titular}</p>}
               {metodo === "binance" && <p>ID: {datosCuentas.binance.id}</p>}
@@ -243,135 +242,134 @@ export default function ProcesoPago({
           )}
 
           <input type="text" placeholder="Número de Referencia" required value={referencia} onChange={(e) => setReferencia(e.target.value)}
-            className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl outline-none font-bold" />
+            className="w-full p-4 bg-slate-950/50 border border-slate-800 rounded-2xl outline-none font-bold text-white focus:border-blue-600 transition-all placeholder:text-slate-600" />
 
-          <label className={`flex flex-col items-center justify-center w-full h-32 border-4 border-dashed rounded-2xl cursor-pointer transition-all ${archivo ? 'border-green-400 bg-green-50' : 'border-slate-200 bg-slate-50'}`}>
+          <label className={`flex flex-col items-center justify-center w-full h-32 border-2 border-dashed rounded-2xl cursor-pointer transition-all ${archivo ? 'border-blue-500 bg-blue-500/10' : 'border-slate-700 bg-slate-950/50 hover:bg-slate-900'}`}>
             <span className="text-3xl mb-1">{archivo ? '✅' : '📸'}</span>
-            <p className="text-[10px] font-black text-slate-400 uppercase">{archivo ? archivo.name : 'Subir Captura'}</p>
+            <p className="text-[10px] font-black text-slate-500 uppercase">{archivo ? archivo.name : 'Subir Captura'}</p>
             <input type="file" className="hidden" accept="image/*" onChange={(e) => setArchivo(e.target.files[0])} />
           </label>
 
-          <button type="submit" disabled={cargando} className="w-full bg-green-500 text-white font-black py-5 rounded-2xl shadow-xl border-b-4 border-green-700 uppercase">
+          <button type="submit" disabled={cargando} className="w-full bg-blue-600 text-white font-black py-5 rounded-2xl shadow-xl hover:bg-blue-500 active:scale-95 transition-all uppercase tracking-widest text-sm disabled:opacity-50">
             {cargando ? 'Procesando...' : 'Finalizar Reporte'}
           </button>
         </form>
       </div>
 
-     {/* --- MODAL DE CONFIRMACIÓN / ÉXITO --- */}
-{mostrarConfirmacion && (
-  <div className="fixed inset-0 z-[100] flex items-center justify-center p-2 bg-slate-900/60 backdrop-blur-md">
-    <div className="bg-white w-full max-w-sm rounded-[2rem] shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-300">
-      <div className="bg-slate-900 p-4 text-center text-white font-black uppercase text-xs tracking-widest">
-        {pagoExitoso ? '✅ Reporte Exitoso' : 'Confirma tus datos'}
-      </div>
-      
-      <div className="p-5">
-        <div className="space-y-2 bg-slate-50 p-4 rounded-2xl mb-4">
-          <div className="flex justify-between border-b border-slate-200 pb-1">
-            <span className="text-[9px] font-black text-slate-400 uppercase">Rifa</span>
-            <span className="text-xs font-bold uppercase truncate ml-4">{rifaId || 'N/A'}</span>
-          </div>
-          <div className="flex justify-between border-b border-slate-200 pb-1">
-            <span className="text-[9px] font-black text-slate-400 uppercase">Cliente</span>
-            <span className="text-xs font-bold uppercase truncate ml-4">{nombre}</span>
-          </div>
-          <div className="flex justify-between border-b border-slate-200 pb-1">
-            <span className="text-[9px] font-black text-slate-400 uppercase">WhatsApp</span>
-            <span className="text-xs font-bold uppercase">{whatsappFormateado}</span>
-          </div>
-          <div className="flex justify-between border-b border-slate-200 pb-1">
-            <span className="text-[9px] font-black text-slate-400 uppercase">Método</span>
-            <span className="text-xs font-bold uppercase">{metodo}</span>
-          </div>
-          <div className="flex justify-between border-b border-slate-200 pb-1">
-            <span className="text-[9px] font-black text-slate-400 uppercase">Referencia</span>
-            <span className="text-xs font-bold uppercase">{referencia}</span>
-          </div>
-          <div className="flex justify-between pb-1">
-            <span className="text-[9px] font-black text-slate-400 uppercase">Tickets</span>
-            <span className="text-md font-black text-blue-600">{cantidad}</span>
-          </div>
+     {/* --- MODAL DE CONFIRMACIÓN / ÉXITO DARK --- */}
+      {mostrarConfirmacion && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-2 bg-black/95 backdrop-blur-xl">
+          <div className="bg-slate-900 w-full max-w-xs rounded-[2.5rem] shadow-[0_0_50px_rgba(0,0,0,0.8)] overflow-hidden border border-slate-800 animate-in fade-in zoom-in duration-300">
+            <div className="bg-slate-950 p-4 text-center text-blue-500 font-black uppercase text-[10px] tracking-widest border-b border-slate-800">
+              {pagoExitoso ? '✅ Reporte Exitoso' : 'Confirma tus datos'}
+            </div>
+            
+            <div className="p-5">
+              <div className="space-y-2 bg-slate-950/50 p-4 rounded-2xl mb-4 border border-slate-800">
+                <div className="flex justify-between border-b border-slate-800/50 pb-1">
+                  <span className="text-[9px] font-black text-slate-500 uppercase">Rifa</span>
+                  <span className="text-[10px] font-bold uppercase truncate ml-4 text-slate-200">{rifaId || 'N/A'}</span>
+                </div>
+                <div className="flex justify-between border-b border-slate-800/50 pb-1">
+                  <span className="text-[9px] font-black text-slate-500 uppercase">Cliente</span>
+                  <span className="text-[10px] font-bold uppercase truncate ml-4 text-slate-200">{nombre}</span>
+                </div>
+                <div className="flex justify-between border-b border-slate-800/50 pb-1">
+                  <span className="text-[9px] font-black text-slate-500 uppercase">WhatsApp</span>
+                  <span className="text-[10px] font-bold text-slate-200">{whatsappFormateado}</span>
+                </div>
+                <div className="flex justify-between border-b border-slate-800/50 pb-1">
+                  <span className="text-[9px] font-black text-slate-500 uppercase">Método</span>
+                  <span className="text-[10px] font-bold uppercase text-slate-200">{metodo}</span>
+                </div>
+                <div className="flex justify-between border-b border-slate-800/50 pb-1">
+                  <span className="text-[9px] font-black text-slate-500 uppercase">Referencia</span>
+                  <span className="text-[10px] font-bold uppercase text-slate-200">{referencia}</span>
+                </div>
+                <div className="flex justify-between pb-1">
+                  <span className="text-[9px] font-black text-slate-500 uppercase">Tickets</span>
+                  <span className="text-md font-black text-blue-500">{cantidad}</span>
+                </div>
 
-          {/* NUEVA SECCIÓN: LISTA DE TICKETS ASIGNADOS */}
-          <div className="py-2">
-            <span className="text-[9px] font-black text-slate-400 uppercase block mb-2 text-center">Tus Números Generados</span>
-            <div className="flex flex-wrap justify-center gap-1 max-h-24 overflow-y-auto p-2 bg-white rounded-xl border border-slate-200">
-              {ticketsTemporales.length > 0 ? (
-                ticketsTemporales.map((t, idx) => (
-                  <span key={idx} className="bg-blue-600 text-white text-[10px] font-black px-2 py-1 rounded-md shadow-sm">
-                    {t}
-                  </span>
-                ))
-              ) : (
-                <span className="text-[10px] font-bold text-slate-300 italic">Generando números...</span>
-              )}
-            </div>
-          </div>
-          
-          <div className="mt-3 space-y-1">
-            <div className="bg-slate-900 p-3 rounded-xl text-white flex justify-between items-center">
-              <span className="text-[9px] font-black uppercase opacity-60">Monto en USD.</span>
-              <span className="text-lg font-black text-blue-400">${totalUSD.toFixed(2)}</span>
-            </div>
-            {metodo === "pagomovil" && (
-              <div className="bg-blue-600 p-3 rounded-xl text-white shadow-lg">
-                <div className="flex justify-between items-center">
-                  <span className="text-[9px] font-black uppercase opacity-80">Monto en Bs.</span>
-                  <span className="text-lg font-black">{totalBS.toLocaleString('es-VE', { minimumFractionDigits: 2 })}</span>
+                <div className="py-2">
+                  <span className="text-[8px] font-black text-slate-600 uppercase block mb-2 text-center">Números Reservados</span>
+                  <div className="flex flex-wrap justify-center gap-1 max-h-24 overflow-y-auto p-2 bg-slate-950 rounded-xl border border-slate-800">
+                    {ticketsTemporales.length > 0 ? (
+                      ticketsTemporales.map((t, idx) => (
+                        <span key={idx} className="bg-blue-600/20 text-blue-400 text-[10px] font-black px-2 py-1 rounded-md border border-blue-500/20">
+                          {t}
+                        </span>
+                      ))
+                    ) : (
+                      <span className="text-[9px] font-bold text-slate-700 italic">Generando...</span>
+                    )}
+                  </div>
+                </div>
+                
+                <div className="mt-3 space-y-1">
+                  <div className="bg-slate-950 p-3 rounded-xl border border-slate-800 flex justify-between items-center">
+                    <span className="text-[9px] font-black uppercase text-slate-500">Total Divisas</span>
+                    <span className="text-lg font-black text-blue-500">${totalUSD.toFixed(2)}</span>
+                  </div>
+                  {metodo === "pagomovil" && (
+                    <div className="bg-blue-600 p-3 rounded-xl text-white shadow-lg">
+                      <div className="flex justify-between items-center">
+                        <span className="text-[9px] font-black uppercase opacity-80">Monto en Bs.</span>
+                        <span className="text-lg font-black">{totalBS.toLocaleString('es-VE', { minimumFractionDigits: 2 })}</span>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
-            )}
+
+              <div className="space-y-2">
+                {!pagoExitoso ? (
+                  <>
+                    <button onClick={ejecutarEnvio} disabled={cargando} 
+                      className={`w-full py-4 rounded-xl font-black uppercase text-[10px] tracking-widest transition-all ${cargando ? 'bg-slate-800 text-slate-500' : 'bg-blue-600 text-white hover:bg-blue-500 active:scale-95'}`}>
+                      {cargando ? 'PROCESANDO...' : 'SÍ, ENVIAR ✅'}
+                    </button>
+                    {!cargando && (
+                      <button onClick={cancelarYLibrear} className="w-full text-slate-600 py-1 font-black uppercase text-[8px] tracking-widest">
+                        CANCELAR Y LIBERAR
+                      </button>
+                    )}
+                  </>
+                ) : (
+                  <div className="space-y-3 animate-in slide-in-from-bottom-2 duration-500">
+                    <div className="w-full bg-blue-600 text-white py-4 rounded-xl font-black uppercase text-[10px] text-center shadow-lg">
+                      ¡REPORTE ENVIADO! 🎟️
+                    </div>
+                    <div className="bg-blue-500/10 border border-blue-500/20 p-3 rounded-lg text-center">
+                       <p className="text-[10px] text-blue-400 font-black uppercase">
+                         📸 ¡TOMA CAPTURA AHORA!
+                       </p>
+                       <p className="text-[8px] text-slate-500 font-bold mt-1">
+                         Guarda tus números. Verificaremos a la brevedad.
+                       </p>
+                    </div>
+                    <button onClick={limpiarTodoYSalir} 
+                      className="w-full text-slate-400 py-2 font-black uppercase text-[9px] underline tracking-widest">
+                      CERRAR Y FINALIZAR
+                    </button>
+                  </div>
+                )}
+                <p className="text-[7px] text-center text-slate-700 mt-2 font-black uppercase tracking-[0.2em]">👑 ganaconjuvenil.com 👑</p>
+              </div>
+            </div>
           </div>
         </div>
+      )}
 
-        <div className="space-y-2">
-          {!pagoExitoso ? (
-            <>
-              <button onClick={ejecutarEnvio} disabled={cargando} 
-                className={`w-full py-3 rounded-xl font-black uppercase text-[10px] shadow-lg transition-all ${cargando ? 'bg-slate-400' : 'bg-slate-900 text-white active:scale-95'}`}>
-                {cargando ? 'PROCESANDO...' : 'SÍ, ENVIAR ✅'}
-              </button>
-              {!cargando && (
-                <button onClick={cancelarYLibrear} className="w-full text-slate-400 py-1 font-black uppercase text-[9px]">
-                  CANCELAR Y LIBERAR
-                </button>
-              )}
-              <p className="text-[8px] text-center text-slate-400 mt-2 font-bold uppercase italic leading-tight">👑 ganaconjuvenil.com 👑</p>
-            </>
-          ) : (
-            <div className="space-y-3 animate-in slide-in-from-bottom-2 duration-500">
-              <div className="w-full bg-green-500 text-white py-4 rounded-xl font-black uppercase text-[10px] text-center shadow-xl border-b-4 border-green-700">
-                ¡PAGO ENVIADO CON ÉXITO! 🎟️
-              </div>
-              <div className="bg-yellow-100 border border-yellow-200 p-3 rounded-lg text-center">
-                 <p className="text-[10px] text-yellow-800 font-black uppercase">
-                   📸 ¡TOMA UN CAPTURE AHORA!
-                 </p>
-                 <p className="text-[8px] text-yellow-700 font-bold mt-1">
-                   Guarda tus números. Verificaremos tu pago a la brevedad.
-                 </p>
-              </div>
-              <p className="text-[8px] text-center text-slate-400 mt-2 font-bold uppercase italic leading-tight">👑 ganaconjuvenil.com 👑</p>
-              <button onClick={limpiarTodoYSalir} 
-                className="w-full text-slate-500 py-2 font-black uppercase text-[9px] underline">
-                CERRAR Y FINALIZAR
-              </button>
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  </div>
-)}
-
-      {/* MODAL STATUS (Solo para errores) */}
+      {/* MODAL STATUS DARK */}
       {modalStatus.visible && modalStatus.tipo === 'error' && (
-        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm">
-          <div className="bg-white w-full max-w-xs rounded-[2.5rem] shadow-2xl overflow-hidden text-center p-8">
-            <div className="text-5xl mb-4">⚠️</div>
-            <h4 className="text-xl font-black text-slate-900 uppercase">¡ERROR!</h4>
-            <p className="text-xs font-bold text-slate-400 uppercase mb-6 leading-relaxed">{modalStatus.mensaje}</p>
-            <button onClick={() => setModalStatus({ ...modalStatus, visible: false })} className="w-full py-4 rounded-2xl font-black text-white bg-slate-900 uppercase text-[10px]">ENTENDIDO</button>
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+          <div className="bg-slate-900 w-full max-w-xs rounded-[2.5rem] shadow-2xl overflow-hidden text-center p-8 border border-slate-800">
+            <div className="text-4xl mb-4">⚠️</div>
+            <h4 className="text-xl font-black text-white uppercase italic">¡ERROR!</h4>
+            <div className="w-8 h-1 bg-red-500 mx-auto my-3 rounded-full"></div>
+            <p className="text-[10px] font-bold text-slate-400 uppercase mb-6 leading-relaxed">{modalStatus.mensaje}</p>
+            <button onClick={() => setModalStatus({ ...modalStatus, visible: false })} className="w-full py-4 rounded-2xl font-black text-white bg-blue-600 uppercase text-[10px] tracking-widest shadow-lg">ENTENDIDO</button>
           </div>
         </div>
       )}
