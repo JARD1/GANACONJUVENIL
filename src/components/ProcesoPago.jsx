@@ -289,6 +289,7 @@ export default function ProcesoPago({
             <div className="bg-slate-900 p-6 text-center text-white font-black uppercase tracking-widest">Confirma tus datos</div>
             <div className="p-8">
               <div className="space-y-3 bg-slate-50 p-6 rounded-3xl mb-6">
+                <div className="flex justify-between border-b pb-2"><span className="text-[10px] font-black text-slate-400 uppercase">Rifa</span><span className="text-sm font-bold uppercase">{rifaId}</span></div>
                 <div className="flex justify-between border-b pb-2"><span className="text-[10px] font-black text-slate-400 uppercase">Cliente</span><span className="text-sm font-bold uppercase">{nombre}</span></div>
                 <div className="flex justify-between border-b pb-2"><span className="text-[10px] font-black text-slate-400 uppercase">WhatsApp</span><span className="text-sm font-bold">+{whatsappFormateado}</span></div>
                 <div className="flex justify-between border-b pb-2"><span className="text-[10px] font-black text-slate-400 uppercase">Tickets</span><span className="text-lg font-black">{cantidad}</span></div>
