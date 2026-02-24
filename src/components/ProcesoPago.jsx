@@ -1,32 +1,40 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { db } from '../firebase'; 
-import { collection, addDoc, query, where, getDocs, deleteDoc, doc, serverTimestamp, writeBatch } from "firebase/firestore";
+import { collection, query, where, getDocs, doc, addDoc, runTransaction, serverTimestamp, writeBatch, orderBy, limit } from "firebase/firestore";
 import CryptoJS from 'crypto-js';
 
 export default function ProcesoPago({ 
   rifaId, 
   precioTicket = 0, 
-  tasaExterna = 1, 
-  maxTickets = 1000 
+  tasaExterna = 1 
 }) {
-  // --- ESTADOS (SIN CAMBIOS) ---
-  const [cantidad, setCantidad] = useState(1);
+  // PASOS DEL FLUJO: 1 (Datos), 2 (Verificación), 3 (Pago), 4 (Éxito)
+  const [paso, setPaso] = useState(1);
+  
+  // DATOS DEL USUARIO
+  const [cantidad, setCantidad] = useState(2); // Inicia en 2 por tu regla de compra mínima
   const [nombre, setNombre] = useState("");
   const [whatsapp, setWhatsapp] = useState(""); 
+  const [correo, setCorreo] = useState("");
+  const [direccion, setDireccion] = useState("");
+  
+  // VERIFICACIÓN
+  const [codigoGenerado, setCodigoGenerado] = useState("");
+  const [codigoInput, setCodigoInput] = useState("");
+  
+  // PAGO
   const [metodo, setMetodo] = useState("");
   const [referencia, setReferencia] = useState("");
   const [archivo, setArchivo] = useState(null);
+  
+  // SISTEMA
   const [cargando, setCargando] = useState(false);
-  const [pagoExitoso, setPagoExitoso] = useState(false);
-  const [mostrarConfirmacion, setMostrarConfirmacion] = useState(false);
-  const [whatsappFormateado, setWhatsappFormateado] = useState(""); 
   const [ticketsTemporales, setTicketsTemporales] = useState([]);
-  const [reservaId, setReservaId] = useState(null);
+  const [whatsappFormateado, setWhatsappFormateado] = useState(""); 
   const [modalStatus, setModalStatus] = useState({ visible: false, tipo: '', mensaje: '' });
 
   const SECRET_KEY = import.meta.env.VITE_SECRET_KEY; 
   const API_KEY_IMGBB = import.meta.env.VITE_IMGBB_KEY;
-  const digitos = maxTickets ? maxTickets.toString().length : 3;
 
   const datosCuentas = {
     pagomovil: { banco: "Banesco", tlf: "04241234567", ci: "20.123.456" },
@@ -37,107 +45,117 @@ export default function ProcesoPago({
   const totalUSD = (Number(cantidad) || 0) * precioTicket;
   const totalBS = tasaExterna ? totalUSD * tasaExterna : 0;
 
-  // --- LÓGICA DE LIMPIEZA (SIN CAMBIOS) ---
-  const ejecutarLimpiezaReservasAntiguas = async () => {
-    try {
-      const tiempoLimite = Date.now() - (30 * 60 * 1000); 
-      const q = query(collection(db, "reservas"), where("expiracion", "<", tiempoLimite));
-      const snapshot = await getDocs(q);
-      if (!snapshot.empty) {
-        const batch = writeBatch(db);
-        snapshot.forEach((d) => batch.delete(d.ref));
-        await batch.commit();
-      }
-    } catch (error) { console.error("Error en autolimpieza:", error); }
-  };
-
-  useEffect(() => {
-    const limpiarReserva = async () => { if (reservaId) await deleteDoc(doc(db, "reservas", reservaId)).catch(() => {}); };
-    const handleBeforeUnload = () => { if (reservaId) limpiarReserva(); };
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    return () => {
-      window.removeEventListener('beforeunload', handleBeforeUnload);
-      if (reservaId) limpiarReserva();
-    };
-  }, [reservaId]);
-
   const mostrarAviso = (tipo, mensaje) => { setModalStatus({ visible: true, tipo, mensaje }); };
 
-  const generarHashSeguridad = (data) => {
-    const payload = `${data.nombre}-${data.referencia}-${data.whatsapp}-${data.montoUsd}-${data.tickets.join(',')}-${SECRET_KEY}`;
-    return CryptoJS.SHA256(payload).toString();
-  };
-
-  const abrirModalConfirmacion = async (e) => {
+  // --- PASO 1: ASIGNACIÓN SECUENCIAL OPTIMIZADA (MENOR A MAYOR) ---
+  const procesarPaso1 = async (e) => {
     e.preventDefault();
-    if (cantidad < 1) return mostrarAviso('error', 'La cantidad debe ser al menos 1.');
-    if (!archivo || !metodo || !referencia) return mostrarAviso('error', 'Por favor rellena todos los campos.');
-
+    if (cantidad < 2) return mostrarAviso('error', 'La compra mínima es de 2 boletos.');
+    
     let numLimpio = whatsapp.replace(/\D/g, ''); 
     if (numLimpio.startsWith('0')) numLimpio = numLimpio.substring(1); 
     if (!numLimpio.startsWith('58')) numLimpio = '58' + numLimpio; 
-    
-    if (numLimpio.length !== 12) return mostrarAviso('error', 'WhatsApp inválido. Debe tener 11 dígitos.');
+    if (numLimpio.length !== 12) return mostrarAviso('error', 'WhatsApp inválido.');
 
     setCargando(true);
     try {
-      await ejecutarLimpiezaReservasAntiguas();
-      const qRef = query(collection(db, "pagos"), where("referencia", "==", referencia), where("metodoPago", "==", metodo));
-      const resRef = await getDocs(qRef);
-      if (!resRef.empty) { setCargando(false); return mostrarAviso('error', 'Esta referencia ya fue usada.'); }
+      // 1. BÚSQUEDA SECUENCIAL INTELIGENTE (Costos mínimos en Firebase)
+      const ticketsRef = collection(db, "rifas", rifaId, "tickets");
+      const qDisponibles = query(
+        ticketsRef, 
+        where("estado", "==", "disponible"),
+        orderBy("numero", "asc"), // De menor a mayor siempre
+        limit(cantidad)           // Solo pide los necesarios (ej. 2, 5 o 10)
+      );
+      
+      const snapshot = await getDocs(qDisponibles);
 
-      const qVendidos = query(collection(db, "pagos"), where("rifaId", "==", rifaId));
-      const snapVendidos = await getDocs(qVendidos);
-      let ocupados = new Set();
-      snapVendidos.forEach(doc => doc.data().tickets?.forEach(n => ocupados.add(n.toString())));
-
-      const snapReservas = await getDocs(query(collection(db, "reservas"), where("rifaId", "==", rifaId)));
-      snapReservas.forEach(doc => {
-        const data = doc.data();
-        if (data.expiracion > Date.now()) data.tickets?.forEach(n => ocupados.add(n.toString()));
-      });
-
-      let disponibles = [];
-      for (let i = 0; i < maxTickets; i++) {
-        const n = i.toString().padStart(digitos, '0');
-        if (!ocupados.has(n)) disponibles.push(n);
+      if (snapshot.docs.length < cantidad) {
+        throw new Error(`Lo sentimos, solo quedan ${snapshot.docs.length} tickets disponibles.`);
       }
 
-      if (disponibles.length < cantidad) { setCargando(false); return mostrarAviso('error', `Solo quedan ${disponibles.length} números.`); }
+      // 2. Transacción Segura en Firebase
+      const asignados = await runTransaction(db, async (transaction) => {
+        // A) LECTURAS
+        const comprobaciones = [];
+        for (const docSnap of snapshot.docs) {
+          const ref = doc(db, "rifas", rifaId, "tickets", docSnap.id);
+          const snap = await transaction.get(ref);
+          comprobaciones.push({ snap, ref, numero: docSnap.data().numero });
+        }
 
-      const asignados = [];
-      for (let i = 0; i < cantidad; i++) {
-        const index = Math.floor(Math.random() * disponibles.length);
-        asignados.push(disponibles.splice(index, 1)[0]);
-      }
+        // B) VALIDACIÓN
+        for (const item of comprobaciones) {
+          if (item.snap.data().estado !== "disponible") {
+            throw new Error("Colisión de red. Alguien tomó un número en este instante. Intenta de nuevo.");
+          }
+        }
 
-      const docReserva = await addDoc(collection(db, "reservas"), {
-        rifaId, tickets: asignados, expiracion: Date.now() + 600000, createdAt: serverTimestamp()
+        // C) ESCRITURAS
+        for (const item of comprobaciones) {
+          transaction.update(item.ref, { 
+            estado: "reservado",
+            reservadoPor: numLimpio
+          });
+        }
+
+        return comprobaciones.map(item => item.numero);
       });
 
-      setReservaId(docReserva.id);
+      // 3. Generar PIN de 4 dígitos (Simulación de correo)
+      const pin = Math.floor(1000 + Math.random() * 9000).toString();
+      setCodigoGenerado(pin);
+      
+      // Simulación visual del correo para que lo puedas probar
+      alert(`[SIMULACIÓN DE CORREO]\n\nHemos enviado un correo a ${correo}:\n\nTu PIN de seguridad es: ${pin}`);
+
       setTicketsTemporales(asignados);
-      setWhatsappFormateado(numLimpio); 
-      setMostrarConfirmacion(true); 
-    } catch (error) { console.error(error); mostrarAviso('error', 'Error al reservar números.'); }
-    finally { setCargando(false); }
+      setWhatsappFormateado(numLimpio);
+      setPaso(2); // Ir al paso del PIN
+    } catch (error) {
+      console.error("Error detallado:", error);
+      mostrarAviso('error', error.message || 'Error al asignar números.');
+    } finally {
+      setCargando(false);
+    }
   };
 
-  const ejecutarEnvio = async () => {
+  // --- PASO 2: VERIFICAR PIN ---
+  const procesarPaso2 = (e) => {
+    e.preventDefault();
+    if (codigoInput === codigoGenerado) {
+      setPaso(3); 
+    } else {
+      mostrarAviso('error', 'Código de seguridad incorrecto.');
+    }
+  };
+
+  // --- PASO 3: ENVIAR PAGO ---
+  const ejecutarEnvioPago = async (e) => {
+    e.preventDefault();
+    if (!archivo || !metodo || !referencia) return mostrarAviso('error', 'Completa los datos de pago y sube el comprobante.');
+    
     setCargando(true);
     try {
+      const qRef = query(collection(db, "pagos"), where("referencia", "==", referencia), where("metodoPago", "==", metodo));
+      const resRef = await getDocs(qRef);
+      if (!resRef.empty) throw new Error('Esta referencia ya fue usada en nuestro sistema.');
+
+      // Subir imagen a ImgBB
       const formData = new FormData();
       formData.append("image", archivo);
       const resImg = await fetch(`https://api.imgbb.com/1/upload?key=${API_KEY_IMGBB}`, { method: "POST", body: formData });
       const dataImg = await resImg.json();
 
-      const hash = generarHashSeguridad({
-        nombre, referencia, whatsapp: whatsappFormateado, montoUsd: totalUSD, tickets: ticketsTemporales
-      });
+      // Sello de seguridad para evitar hackeos
+      const hash = CryptoJS.SHA256(`${nombre}-${referencia}-${whatsappFormateado}-${totalUSD}-${ticketsTemporales.join(',')}-${SECRET_KEY}`).toString();
 
+      // Guardar el reporte
       await addDoc(collection(db, "pagos"), {
         nombreCliente: nombre,
         whatsapp: whatsappFormateado,
+        correo: correo,
+        direccion: direccion,
         metodoPago: metodo,
         referencia: referencia,
         comprobanteUrl: dataImg.data.url,
@@ -147,229 +165,301 @@ export default function ProcesoPago({
         montoUsd: totalUSD,
         montoBs: totalBS,
         tasaReferencia: tasaExterna,
-        estado: "pendiente",
-        fecha: new Date(),
+        estado: "pagado", 
+        fecha: serverTimestamp(),
         integrityHash: hash 
       });
 
-      if (reservaId) await deleteDoc(doc(db, "reservas", reservaId));
-      setPagoExitoso(true); 
+      // Pasar tickets de "reservado" a "pagado"
+      const batch = writeBatch(db);
+      ticketsTemporales.forEach(num => {
+        const tRef = doc(db, "rifas", rifaId, "tickets", num);
+        batch.update(tRef, { estado: "pagado" });
+      });
+      await batch.commit();
+
+      setPaso(4); 
     } catch (error) {
-      console.error(error);
-      setMostrarConfirmacion(false);
-      mostrarAviso('error', 'Error al procesar el pago.');
+      mostrarAviso('error', error.message || 'Error al enviar el reporte.');
     } finally {
       setCargando(false);
     }
   };
 
-  const cancelarYLibrear = async () => {
-    setMostrarConfirmacion(false);
-    if (reservaId) { await deleteDoc(doc(db, "reservas", reservaId)); setReservaId(null); }
-    setTicketsTemporales([]);
-  };
-
-  const limpiarTodoYSalir = () => {
-    setMostrarConfirmacion(false);
-    setPagoExitoso(false);
-    setNombre("");
-    setWhatsapp("");
-    setMetodo("");
-    setReferencia("");
-    setArchivo(null);
-    setCantidad(1);
-    setTicketsTemporales([]);
-    setReservaId(null);
+  // --- FUNCIÓN PARA CANCELAR Y LIBERAR TICKETS ---
+  const cancelarCompra = async () => {
+    setCargando(true);
+    try {
+      if (ticketsTemporales.length > 0) {
+        const batch = writeBatch(db);
+        ticketsTemporales.forEach(num => {
+          const tRef = doc(db, "rifas", rifaId, "tickets", num);
+          batch.update(tRef, { estado: "disponible", reservadoPor: null });
+        });
+        await batch.commit();
+      }
+      // Resetear todo al paso 1
+      setPaso(1);
+      setTicketsTemporales([]);
+      setCodigoInput("");
+      setArchivo(null);
+      setReferencia("");
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setCargando(false);
+    }
   };
 
   return (
-    <div className="space-y-6">
-      {/* SECCIÓN 1: CANTIDAD DARK */}
-      <div className="bg-slate-900/80 backdrop-blur-md p-6 rounded-[2.5rem] shadow-2xl border border-slate-700/50">
-        <h2 className="text-xl font-black text-white mb-4 italic uppercase">1. Cantidad de boletos</h2>
-        <div className="grid grid-cols-3 gap-2 mb-4">
-          {[1, 5, 10, 20, 50, 100].map(num => (
-            <button key={num} type="button" onClick={() => setCantidad(num)}
-              className={`py-3 rounded-2xl font-black transition-all active:scale-95 ${cantidad === num ? 'bg-blue-600 text-white shadow-[0_0_15px_rgba(37,99,235,0.4)]' : 'bg-slate-800 text-slate-400 hover:bg-slate-750'}`}>
-              +{num}
-            </button>
-          ))}
-        </div>
-        <input type="number" value={cantidad} onChange={(e) => setCantidad(Math.max(1, parseInt(e.target.value) || 1))}
-          className="w-full p-4 bg-slate-950/50 border-2 border-dashed border-slate-700 rounded-2xl text-center font-black text-2xl outline-none text-blue-500 focus:border-blue-600 transition-colors" />
-        
-        <div className="mt-4 space-y-2">
-            <div className="flex justify-between items-center p-5 bg-slate-950 rounded-2xl border border-slate-800">
-                <span className="text-[10px] uppercase font-black text-slate-500 tracking-widest">Total Divisas</span>
-                <span className="text-3xl font-black text-blue-500">${totalUSD.toFixed(2)}</span>
-            </div>
-            <div className="flex justify-between items-center p-5 bg-blue-600 rounded-2xl shadow-[0_10px_20px_rgba(37,99,235,0.3)]">
-                <span className="text-[10px] font-black text-blue-100 uppercase tracking-widest">Monto en Bs.</span>
-                <span className="text-2xl font-black text-white">{totalBS.toLocaleString('es-VE', { minimumFractionDigits: 2 })}</span>
-            </div>
-            <p className="text-xs text-slate-500 italic">• Tasa Oficial BCV •</p>
-        </div>
-      </div>
-
-      {/* SECCIÓN 2: FORMULARIO DARK */}
-      <div className="bg-slate-900/80 backdrop-blur-md p-6 rounded-[2.5rem] shadow-2xl border border-slate-700/50">
-        <h2 className="text-xl font-black text-white mb-4 italic uppercase">2. Confirmar Pago</h2>
-        <form onSubmit={abrirModalConfirmacion} className="space-y-4">
-          <input type="text" placeholder="Nombre completo" required value={nombre} onChange={(e) => setNombre(e.target.value)}
-            className="w-full p-4 bg-slate-950/50 border border-slate-800 rounded-2xl outline-none font-bold text-white focus:border-blue-600 transition-all placeholder:text-slate-600" />
-          
-          <div className="relative flex items-center">
-            <span className="absolute left-4 font-black text-blue-500 border-r border-slate-800 pr-3">+58</span>
-            <input type="tel" placeholder="0412 000 0000" required value={whatsapp} onChange={(e) => setWhatsapp(e.target.value)}
-              className="w-full p-4 pl-16 bg-slate-950/50 border border-slate-800 rounded-2xl outline-none font-bold text-white focus:border-blue-600 transition-all placeholder:text-slate-600" />
-          </div>
-
-          <select required value={metodo} onChange={(e) => setMetodo(e.target.value)}
-            className="w-full p-4 bg-slate-950 border border-slate-800 rounded-2xl font-black text-slate-300 outline-none focus:border-blue-600">
-            <option value="" disabled className="bg-slate-900">-- Método de pago --</option>
-            <option value="pagomovil" className="bg-slate-900 text-white">Pago Móvil (Bs)</option>
-            <option value="zelle" className="bg-slate-900 text-white">Zelle (USD)</option>
-            <option value="binance" className="bg-slate-900 text-white">Binance Pay</option>
-          </select>
-
-          {metodo && (
-            <div className="p-5 bg-blue-600/10 border border-blue-500/20 rounded-2xl text-xs font-bold text-slate-300 animate-in fade-in slide-in-from-top-2">
-              <h3 className="font-black text-blue-500 uppercase mb-1 italic">Transferir a:</h3>
-              {metodo === "pagomovil" && <p>{datosCuentas.pagomovil.banco} | {datosCuentas.pagomovil.tlf} | {datosCuentas.pagomovil.ci}</p>}
-              {metodo === "zelle" && <p>{datosCuentas.zelle.correo} | {datosCuentas.zelle.titular}</p>}
-              {metodo === "binance" && <p>ID: {datosCuentas.binance.id}</p>}
-            </div>
-          )}
-
-          <input type="text" placeholder="Número de Referencia" required value={referencia} onChange={(e) => setReferencia(e.target.value)}
-            className="w-full p-4 bg-slate-950/50 border border-slate-800 rounded-2xl outline-none font-bold text-white focus:border-blue-600 transition-all placeholder:text-slate-600" />
-
-          <label className={`flex flex-col items-center justify-center w-full h-32 border-2 border-dashed rounded-2xl cursor-pointer transition-all ${archivo ? 'border-blue-500 bg-blue-500/10' : 'border-slate-700 bg-slate-950/50 hover:bg-slate-900'}`}>
-            <span className="text-3xl mb-1">{archivo ? '✅' : '📸'}</span>
-            <p className="text-[10px] font-black text-slate-500 uppercase">{archivo ? archivo.name : 'Subir Captura'}</p>
-            <input type="file" className="hidden" accept="image/*" onChange={(e) => setArchivo(e.target.files[0])} />
-          </label>
-
-          <button type="submit" disabled={cargando} className="w-full bg-blue-600 text-white font-black py-5 rounded-2xl shadow-xl hover:bg-blue-500 active:scale-95 transition-all uppercase tracking-widest text-sm disabled:opacity-50">
-            {cargando ? 'Procesando...' : 'Finalizar Reporte'}
-          </button>
-        </form>
-      </div>
-
-     {/* --- MODAL DE CONFIRMACIÓN / ÉXITO DARK --- */}
-      {mostrarConfirmacion && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-2 bg-black/95 backdrop-blur-xl">
-          <div className="bg-slate-900 w-full max-w-xs rounded-[2.5rem] shadow-[0_0_50px_rgba(0,0,0,0.8)] overflow-hidden border border-slate-800 animate-in fade-in zoom-in duration-300">
-            <div className="bg-slate-950 p-4 text-center text-blue-500 font-black uppercase text-[10px] tracking-widest border-b border-slate-800">
-              {pagoExitoso ? '✅ Reporte Exitoso' : 'Confirma tus datos'}
-            </div>
+    <div className="space-y-6 animate-in fade-in duration-500">
+      
+      {/* ==================== PASO 1: DATOS PERSONALES ==================== */}
+      {paso === 1 && (
+        <form onSubmit={procesarPaso1} className="space-y-6">
+          <div className="bg-slate-900/80 backdrop-blur-md p-6 md:p-8 rounded-[2.5rem] shadow-2xl border border-slate-700/50">
+            <h2 className="text-xl font-black text-white mb-6 italic uppercase border-b border-slate-800 pb-4">
+              1. Selección y Datos
+            </h2>
             
-            <div className="p-5">
-              <div className="space-y-2 bg-slate-950/50 p-4 rounded-2xl mb-4 border border-slate-800">
-                <div className="flex justify-between border-b border-slate-800/50 pb-1">
-                  <span className="text-[9px] font-black text-slate-500 uppercase">Rifa</span>
-                  <span className="text-[10px] font-bold uppercase truncate ml-4 text-slate-200">{rifaId || 'N/A'}</span>
-                </div>
-                <div className="flex justify-between border-b border-slate-800/50 pb-1">
-                  <span className="text-[9px] font-black text-slate-500 uppercase">Cliente</span>
-                  <span className="text-[10px] font-bold uppercase truncate ml-4 text-slate-200">{nombre}</span>
-                </div>
-                <div className="flex justify-between border-b border-slate-800/50 pb-1">
-                  <span className="text-[9px] font-black text-slate-500 uppercase">WhatsApp</span>
-                  <span className="text-[10px] font-bold text-slate-200">{whatsappFormateado}</span>
-                </div>
-                <div className="flex justify-between border-b border-slate-800/50 pb-1">
-                  <span className="text-[9px] font-black text-slate-500 uppercase">Método</span>
-                  <span className="text-[10px] font-bold uppercase text-slate-200">{metodo}</span>
-                </div>
-                <div className="flex justify-between border-b border-slate-800/50 pb-1">
-                  <span className="text-[9px] font-black text-slate-500 uppercase">Referencia</span>
-                  <span className="text-[10px] font-bold uppercase text-slate-200">{referencia}</span>
-                </div>
-                <div className="flex justify-between pb-1">
-                  <span className="text-[9px] font-black text-slate-500 uppercase">Tickets</span>
-                  <span className="text-md font-black text-blue-500">{cantidad}</span>
-                </div>
+            <div className="mb-6">
+              <label className="text-[10px] font-black uppercase text-slate-400 ml-1 tracking-widest block mb-2">Cantidad de boletos (Mínimo 2)</label>
+              <div className="grid grid-cols-4 gap-2 mb-3">
+                {[2, 5, 10, 20].map(num => (
+                  <button key={num} type="button" onClick={() => setCantidad(num)}
+                    className={`py-3 rounded-2xl font-black transition-all active:scale-95 ${cantidad === num ? 'bg-blue-600 text-white shadow-[0_0_15px_rgba(37,99,235,0.4)]' : 'bg-slate-950 text-slate-500 border border-slate-800 hover:border-slate-600'}`}>
+                    +{num}
+                  </button>
+                ))}
+              </div>
+              <input type="number" min="2" value={cantidad} onChange={(e) => setCantidad(Math.max(2, parseInt(e.target.value) || 2))}
+                className="w-full p-4 bg-slate-950 border-2 border-dashed border-slate-700 rounded-2xl text-center font-black text-2xl outline-none text-blue-500 focus:border-blue-600 transition-colors shadow-inner" />
+            </div>
 
-                <div className="py-2">
-                  <span className="text-[8px] font-black text-slate-600 uppercase block mb-2 text-center">Números Reservados</span>
-                  <div className="flex flex-wrap justify-center gap-1 max-h-24 overflow-y-auto p-2 bg-slate-950 rounded-xl border border-slate-800">
-                    {ticketsTemporales.length > 0 ? (
-                      ticketsTemporales.map((t, idx) => (
-                        <span key={idx} className="bg-blue-600/20 text-blue-400 text-[10px] font-black px-2 py-1 rounded-md border border-blue-500/20">
-                          {t}
-                        </span>
-                      ))
-                    ) : (
-                      <span className="text-[9px] font-bold text-slate-700 italic">Generando...</span>
-                    )}
-                  </div>
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="text-[10px] font-black uppercase text-slate-500 ml-1 mb-1 block">Nombre Completo</label>
+                  <input type="text" placeholder="Ej. Juan Pérez" required value={nombre} onChange={(e) => setNombre(e.target.value)}
+                    className="w-full p-4 bg-slate-950/50 border border-slate-800 rounded-2xl outline-none font-bold text-white focus:border-blue-600 transition-all placeholder:text-slate-700 shadow-inner" />
                 </div>
-                
-                <div className="mt-3 space-y-1">
-                  <div className="bg-slate-950 p-3 rounded-xl border border-slate-800 flex justify-between items-center">
-                    <span className="text-[9px] font-black uppercase text-slate-500">Total Divisas</span>
-                    <span className="text-lg font-black text-blue-500">${totalUSD.toFixed(2)}</span>
-                  </div>
-                  {metodo === "pagomovil" && (
-                    <div className="bg-blue-600 p-3 rounded-xl text-white shadow-lg">
-                      <div className="flex justify-between items-center">
-                        <span className="text-[9px] font-black uppercase opacity-80">Monto en Bs.</span>
-                        <span className="text-lg font-black">{totalBS.toLocaleString('es-VE', { minimumFractionDigits: 2 })}</span>
-                      </div>
+                <div>
+                  <label className="text-[10px] font-black uppercase text-slate-500 ml-1 mb-1 block">WhatsApp</label>
+                  <div className="flex items-stretch bg-slate-950/50 border border-slate-800 rounded-2xl focus-within:border-blue-600 transition-all shadow-inner overflow-hidden">
+                    <div className="flex items-center justify-center px-4 border-r border-slate-800 bg-slate-900/80 text-blue-500 font-black text-sm select-none">
+                      +58
                     </div>
-                  )}
+                    <input type="tel" placeholder="0412 000 0000" required value={whatsapp} onChange={(e) => setWhatsapp(e.target.value)}
+                      className="flex-1 w-full p-4 bg-transparent outline-none text-white font-bold placeholder:text-slate-700" />
+                  </div>
                 </div>
               </div>
+              
+              <div>
+                <label className="text-[10px] font-black uppercase text-slate-500 ml-1 mb-1 block">Correo Electrónico</label>
+                <input type="email" placeholder="tu@correo.com" required value={correo} onChange={(e) => setCorreo(e.target.value)}
+                  className="w-full p-4 bg-slate-950/50 border border-slate-800 rounded-2xl outline-none font-bold text-white focus:border-blue-600 transition-all placeholder:text-slate-700 shadow-inner" />
+              </div>
 
-              <div className="space-y-2">
-                {!pagoExitoso ? (
-                  <>
-                    <button onClick={ejecutarEnvio} disabled={cargando} 
-                      className={`w-full py-4 rounded-xl font-black uppercase text-[10px] tracking-widest transition-all ${cargando ? 'bg-slate-800 text-slate-500' : 'bg-blue-600 text-white hover:bg-blue-500 active:scale-95'}`}>
-                      {cargando ? 'PROCESANDO...' : 'SÍ, ENVIAR ✅'}
-                    </button>
-                    {!cargando && (
-                      <button onClick={cancelarYLibrear} className="w-full text-slate-600 py-1 font-black uppercase text-[8px] tracking-widest">
-                        CANCELAR Y LIBERAR
-                      </button>
-                    )}
-                  </>
-                ) : (
-                  <div className="space-y-3 animate-in slide-in-from-bottom-2 duration-500">
-                    <div className="w-full bg-blue-600 text-white py-4 rounded-xl font-black uppercase text-[10px] text-center shadow-lg">
-                      ¡REPORTE ENVIADO! 🎟️
-                    </div>
-                    <div className="bg-blue-500/10 border border-blue-500/20 p-3 rounded-lg text-center">
-                       <p className="text-[10px] text-blue-400 font-black uppercase">
-                         📸 ¡TOMA CAPTURA AHORA!
-                       </p>
-                       <p className="text-[8px] text-slate-500 font-bold mt-1">
-                         Guarda tus números. Verificaremos a la brevedad.
-                       </p>
-                    </div>
-                    <button onClick={limpiarTodoYSalir} 
-                      className="w-full text-slate-400 py-2 font-black uppercase text-[9px] underline tracking-widest">
-                      CERRAR Y FINALIZAR
-                    </button>
-                  </div>
-                )}
-                <p className="text-[7px] text-center text-slate-700 mt-2 font-black uppercase tracking-[0.2em]">👑 ganaconjuvenil.com 👑</p>
+              <div>
+                <label className="text-[10px] font-black uppercase text-slate-500 ml-1 mb-1 block">Dirección Corta (Estado / Ciudad)</label>
+                <input type="text" placeholder="Ej. Caracas, Distrito Capital" required value={direccion} onChange={(e) => setDireccion(e.target.value)}
+                  className="w-full p-4 bg-slate-950/50 border border-slate-800 rounded-2xl outline-none font-bold text-white focus:border-blue-600 transition-all placeholder:text-slate-700 shadow-inner" />
               </div>
             </div>
+
+            <div className="mt-8 space-y-2">
+              <div className="flex justify-between items-center p-4 bg-slate-950 rounded-2xl border border-slate-800">
+                  <span className="text-[10px] uppercase font-black text-slate-500 tracking-widest">Total USD</span>
+                  <span className="text-2xl font-black text-blue-500">${totalUSD.toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between items-center p-4 bg-blue-600/10 border border-blue-500/20 rounded-2xl">
+                  <span className="text-[10px] font-black text-blue-400 uppercase tracking-widest">Total Bs.</span>
+                  <div className="text-right">
+                    <span className="text-xl font-black text-white">{totalBS.toLocaleString('es-VE', { minimumFractionDigits: 2 })}</span>
+                    <p className="text-[9px] text-slate-400 mt-1 uppercase font-bold tracking-widest">Tasa BCV: {tasaExterna}</p>
+                  </div>
+              </div>
+            </div>
+
+            <button type="submit" disabled={cargando} className="w-full mt-6 bg-blue-600 text-white font-black py-5 rounded-2xl shadow-xl shadow-blue-900/40 hover:bg-blue-500 active:scale-95 transition-all uppercase tracking-widest text-xs disabled:opacity-50">
+              {cargando ? 'Asignando Números...' : 'Generar Mis Números 🎟️'}
+            </button>
           </div>
+        </form>
+      )}
+
+      {/* ==================== PASO 2: VERIFICACIÓN Y NÚMEROS ==================== */}
+      {paso === 2 && (
+        <div className="bg-slate-900/80 backdrop-blur-md p-6 md:p-8 rounded-[2.5rem] shadow-2xl border border-blue-500/30 animate-in slide-in-from-right-8">
+          <div className="text-center mb-6">
+            <span className="inline-block bg-green-500/20 text-green-400 p-3 rounded-full text-2xl mb-3 border border-green-500/30">🎯</span>
+            <h2 className="text-2xl font-black text-white uppercase italic">¡Números Reservados!</h2>
+            <p className="text-slate-400 text-xs font-bold mt-2">Estos son tus boletos generados por el sistema:</p>
+          </div>
+
+          <div className="flex flex-wrap justify-center gap-3 bg-slate-950 p-6 rounded-3xl border border-slate-800 shadow-inner mb-8">
+            {ticketsTemporales.map(t => (
+              <span key={t} className="bg-blue-600/20 text-blue-400 text-xl md:text-2xl font-black px-5 py-3 rounded-2xl border border-blue-500/30 shadow-lg transform rotate-[-2deg] hover:rotate-0 transition-transform">
+                {t}
+              </span>
+            ))}
+          </div>
+
+          <form onSubmit={procesarPaso2} className="space-y-4 border-t border-slate-800 pt-6">
+            <div className="text-center">
+              <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Verificación de Seguridad</label>
+              <p className="text-xs text-blue-400 mt-1 mb-4">Introduce el PIN de 4 dígitos enviado a <strong>{correo}</strong></p>
+              
+              <input type="text" placeholder="••••" maxLength={4} required value={codigoInput} onChange={(e) => setCodigoInput(e.target.value)}
+                className="w-40 text-center text-4xl tracking-[0.5em] p-4 bg-slate-950 border-2 border-slate-700 rounded-2xl outline-none font-black text-white focus:border-blue-600 transition-all mx-auto block shadow-inner placeholder:text-slate-700" />
+            </div>
+
+            <button type="submit" className="w-full bg-blue-600 text-white font-black py-4 rounded-2xl shadow-xl shadow-blue-900/40 hover:bg-blue-500 active:scale-95 transition-all uppercase tracking-widest text-[10px] mt-4">
+              Verificar y Proceder al Pago ✅
+            </button>
+            <button type="button" onClick={cancelarCompra} className="w-full text-slate-500 hover:text-red-400 font-black py-3 uppercase tracking-widest text-[9px] transition-colors mt-2">
+              Cancelar y Liberar Números
+            </button>
+          </form>
         </div>
       )}
 
-      {/* MODAL STATUS DARK */}
+      {/* ==================== PASO 3: REPORTE DE PAGO ==================== */}
+      {paso === 3 && (
+        <form onSubmit={ejecutarEnvioPago} className="bg-slate-900/80 backdrop-blur-md p-6 md:p-8 rounded-[2.5rem] shadow-2xl border border-slate-700/50 animate-in zoom-in-95">
+          <h2 className="text-xl font-black text-white mb-6 italic uppercase border-b border-slate-800 pb-4">
+            3. Confirmar Pago
+          </h2>
+          
+          <div className="space-y-5">
+            <select required value={metodo} onChange={(e) => setMetodo(e.target.value)}
+              className="w-full p-4 bg-slate-950 border border-slate-800 rounded-2xl font-black text-slate-300 outline-none focus:border-blue-600 appearance-none shadow-inner">
+              <option value="" disabled>-- Selecciona Método de Pago --</option>
+              <option value="pagomovil">Pago Móvil (Bs {totalBS.toLocaleString('es-VE', { minimumFractionDigits: 2 })})</option>
+              <option value="zelle">Zelle (${totalUSD.toFixed(2)})</option>
+              <option value="binance">Binance Pay (${totalUSD.toFixed(2)})</option>
+            </select>
+
+            {metodo && (
+              <div className="p-5 bg-blue-600/10 border border-blue-500/30 rounded-2xl text-xs font-bold text-slate-300 animate-in slide-in-from-top-2">
+                <h3 className="font-black text-blue-500 uppercase mb-2 italic tracking-widest">Datos para transferir:</h3>
+                {metodo === "pagomovil" && <div className="space-y-1"><p>Banco: {datosCuentas.pagomovil.banco}</p><p>Teléfono: {datosCuentas.pagomovil.tlf}</p><p>C.I: {datosCuentas.pagomovil.ci}</p></div>}
+                {metodo === "zelle" && <div className="space-y-1"><p>Correo: {datosCuentas.zelle.correo}</p><p>Titular: {datosCuentas.zelle.titular}</p></div>}
+                {metodo === "binance" && <p>Pay ID: {datosCuentas.binance.id}</p>}
+              </div>
+            )}
+
+            <div>
+              <label className="text-[10px] font-black uppercase text-slate-500 ml-1 mb-1 block">Número de Referencia</label>
+              <input type="text" placeholder="Ej. 12345678" required value={referencia} onChange={(e) => setReferencia(e.target.value)}
+                className="w-full p-4 bg-slate-950/50 border border-slate-800 rounded-2xl outline-none font-bold text-white focus:border-blue-600 transition-all placeholder:text-slate-700 shadow-inner" />
+            </div>
+
+            <label className={`flex flex-col items-center justify-center w-full h-32 border-2 border-dashed rounded-2xl cursor-pointer transition-all ${archivo ? 'border-green-500 bg-green-500/10' : 'border-slate-700 bg-slate-950/50 hover:bg-slate-900'}`}>
+              <span className="text-3xl mb-2">{archivo ? '✅' : '📸'}</span>
+              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest text-center px-4">
+                {archivo ? archivo.name : 'Subir Captura de Pago'}
+              </p>
+              <input type="file" className="hidden" accept="image/*" onChange={(e) => setArchivo(e.target.files[0])} />
+            </label>
+
+            <button type="submit" disabled={cargando} className="w-full bg-blue-600 text-white font-black py-5 rounded-2xl shadow-xl shadow-blue-900/40 hover:bg-blue-500 active:scale-95 transition-all uppercase tracking-widest text-[11px] disabled:opacity-50 mt-4">
+              {cargando ? 'Procesando Pago...' : 'Finalizar y Reportar Pago 🚀'}
+            </button>
+            <button type="button" onClick={cancelarCompra} disabled={cargando} className="w-full text-slate-500 hover:text-red-400 font-black py-3 uppercase tracking-widest text-[9px] transition-colors mt-2">
+              Cancelar Compra
+            </button>
+          </div>
+        </form>
+      )}
+
+      {/* ==================== PASO 4: ÉXITO (RECIBO DIGITAL PARA CAPTURA) ==================== */}
+      {paso === 4 && (
+        <div className="animate-in zoom-in duration-500 flex flex-col items-center w-full max-w-md mx-auto">
+          
+          <div className="bg-yellow-500/20 text-yellow-400 border border-yellow-500/40 px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest mb-4 animate-pulse shadow-[0_0_15px_rgba(234,179,8,0.3)]">
+            📸 Tómale captura a este recibo
+          </div>
+
+          <div className="bg-slate-950 w-full rounded-[2rem] border border-slate-800 shadow-[0_20px_50px_rgba(0,0,0,0.8)] overflow-hidden relative">
+            <div className="h-2 w-full bg-gradient-to-r from-blue-600 via-green-500 to-blue-600"></div>
+            
+            <div className="p-6 md:p-8">
+              <div className="text-center mb-6">
+                <div className="w-16 h-16 bg-green-500/10 text-green-500 rounded-full flex items-center justify-center text-3xl mx-auto mb-3 border border-green-500/20 shadow-inner">
+                  ✓
+                </div>
+                <h2 className="text-xl font-black text-white uppercase italic tracking-tighter">Reporte Exitoso</h2>
+                <p className="text-[9px] text-slate-500 font-bold uppercase tracking-widest mt-1">
+                  {new Date().toLocaleString('es-VE')}
+                </p>
+              </div>
+
+              <div className="bg-slate-900/50 p-4 rounded-2xl text-center border border-slate-800/50 mb-6">
+                <p className="text-[10px] text-slate-500 font-black uppercase tracking-widest mb-1">Monto Procesado</p>
+                <h3 className="text-3xl font-black text-green-500">${totalUSD.toFixed(2)}</h3>
+                <p className="text-xs text-slate-400 font-bold uppercase mt-1">Bs. {totalBS.toLocaleString('es-VE', { minimumFractionDigits: 2 })}</p>
+              </div>
+
+              <div className="space-y-3 text-xs border-y border-dashed border-slate-800 py-4 mb-6">
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-500 font-bold uppercase text-[9px] tracking-widest">Cliente</span>
+                  <span className="text-slate-200 font-black truncate max-w-[150px]">{nombre}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-500 font-bold uppercase text-[9px] tracking-widest">WhatsApp</span>
+                  <span className="text-slate-200 font-black">+{whatsappFormateado}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-500 font-bold uppercase text-[9px] tracking-widest">Transacción</span>
+                  <span className="text-blue-400 font-black uppercase">{metodo}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-500 font-bold uppercase text-[9px] tracking-widest">Referencia</span>
+                  <span className="text-slate-200 font-black uppercase">{referencia}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-500 font-bold uppercase text-[9px] tracking-widest">Sorteo ID</span>
+                  <span className="text-slate-400 font-black uppercase text-[10px]">{rifaId.slice(0, 10)}</span>
+                </div>
+              </div>
+
+              <div className="text-center">
+                <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-3">
+                  Boletos Asignados ({cantidad})
+                </span>
+                <div className="flex flex-wrap justify-center gap-2">
+                  {ticketsTemporales.map(t => (
+                    <span key={t} className="bg-blue-600/20 text-blue-400 text-sm md:text-base font-black px-3 py-1.5 rounded-lg border border-blue-500/30 shadow-inner">
+                      {t}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-slate-900/50 p-4 border-t border-slate-800 text-center">
+               <p className="text-[8px] uppercase font-black tracking-[0.2em] text-slate-500">
+                 © Gana con Juvenil • Sistema Validado
+               </p>
+            </div>
+          </div>
+
+          <button onClick={() => window.location.reload()} className="mt-6 w-full text-blue-400 hover:text-blue-300 font-black py-3 uppercase tracking-widest text-[10px] underline transition-colors">
+            Finalizar y volver al inicio
+          </button>
+        </div>
+      )}
+
+      {/* MODAL STATUS DE ERROR */}
       {modalStatus.visible && modalStatus.tipo === 'error' && (
-        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+        <div className="fixed inset-0 z-[600] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
           <div className="bg-slate-900 w-full max-w-xs rounded-[2.5rem] shadow-2xl overflow-hidden text-center p-8 border border-slate-800">
             <div className="text-4xl mb-4">⚠️</div>
-            <h4 className="text-xl font-black text-white uppercase italic">¡ERROR!</h4>
-            <div className="w-8 h-1 bg-red-500 mx-auto my-3 rounded-full"></div>
-            <p className="text-[10px] font-bold text-slate-400 uppercase mb-6 leading-relaxed">{modalStatus.mensaje}</p>
-            <button onClick={() => setModalStatus({ ...modalStatus, visible: false })} className="w-full py-4 rounded-2xl font-black text-white bg-blue-600 uppercase text-[10px] tracking-widest shadow-lg">ENTENDIDO</button>
+            <h4 className="text-xl font-black text-white uppercase italic mb-3">¡Aviso!</h4>
+            <p className="text-[10px] font-bold text-slate-400 uppercase mb-6">{modalStatus.mensaje}</p>
+            <button onClick={() => setModalStatus({ visible: false, tipo: '', mensaje: '' })} className="w-full py-4 rounded-xl font-black text-white bg-blue-600 uppercase text-[10px] tracking-widest shadow-lg active:scale-95">Entendido</button>
           </div>
         </div>
       )}

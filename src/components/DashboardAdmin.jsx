@@ -1,285 +1,359 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../firebase'; 
-import { collection, query, onSnapshot, doc, updateDoc, getDocs, where, writeBatch } from "firebase/firestore";
-import { listaRifas } from '../data/rifas';
+import { collection, query, where, getDocs, doc, writeBatch, getCountFromServer } from "firebase/firestore";
+import { listaRifas } from '../data/rifas.js';
+import * as XLSX from 'xlsx';
 
 export default function DashboardAdmin() {
-  const [reportes, setReportes] = useState([]);
-  const [comprobanteSeleccionado, setComprobanteSeleccionado] = useState(null);
-  const [busqueda, setBusqueda] = useState("");
-  const [filtroRifa, setFiltroRifa] = useState("todas");
-  const [procesandoId, setProcesandoId] = useState(null);
-  const [archivando, setArchivando] = useState(false); // Nuevo estado para el loader de archivo
+  const [rifaSeleccionada, setRifaSeleccionada] = useState(listaRifas[0]?.id || "");
+  const [pagos, setPagos] = useState([]);
+  const [cargando, setCargando] = useState(false);
+  const [modalImagen, setModalImagen] = useState(null);
+  const [filtroEstado, setFiltroEstado] = useState("pagado"); 
+  const [statsTickets, setStatsTickets] = useState({ disponibles: 0, confirmados: 0, pendientes: 0 });
 
+  // Cargar datos cuando cambia la rifa o el filtro
   useEffect(() => {
-    const q = query(collection(db, "pagos"));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const docs = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-      setReportes(docs.sort((a, b) => b.fecha?.seconds - a.fecha?.seconds));
-    });
-    return () => unsubscribe();
-  }, []);
+    if (!rifaSeleccionada) return;
+    cargarPagos();
+    cargarEstadisticas();
+  }, [rifaSeleccionada, filtroEstado]);
 
-  // --- NUEVA FUNCIÓN: ARCHIVAR RIFA ---
-  const archivarRifaActual = async () => {
-    if (filtroRifa === "todas") return alert("Selecciona una rifa específica para archivar.");
-    
-    const confirmacion = window.confirm(
-      `⚠️ ¿ESTÁS SEGURO?\n\nEsta acción moverá todos los registros de "${filtroRifa}" a la tabla de ARCHIVADOS y los borrará de esta vista.\n\nEsto dejará la rifa limpia para empezar de nuevo.`
-    );
-
-    if (!confirmacion) return;
-
-    setArchivando(true);
+  const cargarEstadisticas = async () => {
     try {
-      const q = query(collection(db, "pagos"), where("rifaId", "==", filtroRifa));
-      const querySnapshot = await getDocs(q);
+      const ticketsRef = collection(db, "rifas", rifaSeleccionada, "tickets");
+      
+      const [snapDisp, snapConf, snapPend] = await Promise.all([
+        getCountFromServer(query(ticketsRef, where("estado", "==", "disponible"))),
+        getCountFromServer(query(ticketsRef, where("estado", "==", "confirmado"))),
+        getCountFromServer(query(ticketsRef, where("estado", "==", "pagado"))) // pagado = en revisión
+      ]);
 
-      if (querySnapshot.empty) {
-        setArchivando(false);
-        return alert("No hay registros para archivar en esta rifa.");
-      }
+      setStatsTickets({
+        disponibles: snapDisp.data().count,
+        confirmados: snapConf.data().count,
+        pendientes: snapPend.data().count
+      });
+    } catch (error) {
+      console.error("Error al cargar estadísticas:", error);
+    }
+  };
 
+  const cargarPagos = async () => {
+    setCargando(true);
+    try {
+      const q = query(
+        collection(db, "pagos"), 
+        where("rifaId", "==", rifaSeleccionada),
+        where("estado", "==", filtroEstado)
+      );
+      const snapshot = await getDocs(q);
+      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      
+      data.sort((a, b) => b.fecha?.toMillis() - a.fecha?.toMillis());
+      setPagos(data);
+    } catch (error) {
+      console.error("Error al cargar pagos:", error);
+    } finally {
+      setCargando(false);
+    }
+  };
+
+  const aprobarPago = async (pago) => {
+    if (!window.confirm(`¿Aprobar los tickets de ${pago.nombreCliente}?`)) return;
+    
+    setCargando(true);
+    try {
       const batch = writeBatch(db);
+      
+      const pagoRef = doc(db, "pagos", pago.id);
+      batch.update(pagoRef, { estado: "confirmado" });
 
-      querySnapshot.forEach((documento) => {
-        const datos = documento.data();
-        // 1. Creamos la copia en la colección 'archivados'
-        const nuevaRefArchivo = doc(collection(db, "archivados"));
-        batch.set(nuevaRefArchivo, {
-          ...datos,
-          fechaFinalizacion: new Date(),
-          idOriginal: documento.id
-        });
-
-        // 2. Marcamos para borrar de la colección 'pagos'
-        const refOriginal = doc(db, "pagos", documento.id);
-        batch.delete(refOriginal);
+      pago.tickets.forEach(num => {
+        const tRef = doc(db, "rifas", pago.rifaId, "tickets", num);
+        batch.update(tRef, { estado: "confirmado" });
       });
 
       await batch.commit();
-      alert(`✅ Éxito: Se han movido ${querySnapshot.size} registros al historial.`);
       
+      const mensaje = `🎉 ¡Hola *${pago.nombreCliente}*!\n\nTu pago ha sido *CONFIRMADO* exitosamente ✅\n\n🎟️ Tus boletos generados son: *${pago.tickets.join(', ')}*\n\nPuedes verificar el estado de tus boletos en cualquier momento ingresando aquí: https://ganaconjuvenil.com/mis-tickets\n\n¡Mucha suerte! 🍀`;
+      const urlWhatsapp = `https://wa.me/${pago.whatsapp}?text=${encodeURIComponent(mensaje)}`;
+      window.open(urlWhatsapp, '_blank');
+
+      cargarPagos(); 
+      cargarEstadisticas();
     } catch (error) {
-      console.error(error);
-      alert("Error al archivar la rifa.");
+      console.error("Error al aprobar:", error);
+      alert("Error al aprobar el pago");
     } finally {
-      setArchivando(false);
+      setCargando(false);
     }
   };
 
-  // ... (tus funciones generarNumerosUnicos, admitirPago y rechazarPago se mantienen igual)
-  const generarNumerosUnicos = async (cantidadSolicitada, rifaId) => {
-    const q = query(
-      collection(db, "pagos"), 
-      where("rifaId", "==", rifaId), 
-      where("estado", "==", "aprobado")
-    );
-    const querySnapshot = await getDocs(q);
-    const numerosOcupados = new Set(querySnapshot.docs.flatMap(doc => doc.data().ticketsAsignados || []));
-
-    const rifaData = listaRifas.find(r => r.id === rifaId);
-    const maxTickets = rifaData?.maxTickets || 1000;
-
-    const disponibles = [];
-    for (let i = 1; i <= maxTickets; i++) {
-      const numFormateado = i.toString().padStart(3, '0');
-      if (!numerosOcupados.has(numFormateado)) {
-        disponibles.push(numFormateado);
-      }
-    }
-
-    if (disponibles.length < cantidadSolicitada) {
-      throw new Error(`¡Agotado! Solo quedan ${disponibles.length} tickets disponibles.`);
-    }
-
-    const seleccionados = disponibles
-      .sort(() => Math.random() - 0.5)
-      .slice(0, cantidadSolicitada);
-
-    return seleccionados;
-  };
-
-  const admitirPago = async (reporte) => {
-    setProcesandoId(reporte.id);
+  const rechazarPago = async (pago) => {
+    if (!window.confirm(`¿RECHAZAR el pago de ${pago.nombreCliente}? Los tickets se liberarán.`)) return;
+    
+    setCargando(true);
     try {
-      const tickets = await generarNumerosUnicos(reporte.cantidadTickets, reporte.rifaId);
-      const rifaNombre = listaRifas.find(r => r.id === reporte.rifaId)?.nombre || "la rifa";
+      const batch = writeBatch(db);
       
-      const docRef = doc(db, "pagos", reporte.id);
-      await updateDoc(docRef, {
-        estado: "aprobado",
-        ticketsAsignados: tickets,
-        fechaAprobacion: new Date()
+      const pagoRef = doc(db, "pagos", pago.id);
+      batch.update(pagoRef, { estado: "rechazado" });
+
+      pago.tickets.forEach(num => {
+        const tRef = doc(db, "rifas", pago.rifaId, "tickets", num);
+        batch.update(tRef, { estado: "disponible", tempUser: null, reservadoPor: null });
       });
 
-      const textoMensaje = 
-        `¡Hola ${reporte.nombreCliente}! 👋\n\n` +
-        `Tu pago por la rifa *${rifaNombre}* ha sido confirmado. ✅\n\n` +
-        `🎟️ *Tus números asignados:*\n` +
-        `*${tickets.join(" - ")}*\n\n` +
-        `Puedes consultar tus tickets en cualquier momento aquí:\n` +
-        `https://ganaconjuvenil.netlify.app/mis-tickets\n\n` +
-        `¡Mucha suerte! 🍀`;
+      await batch.commit();
+      cargarPagos();
+      cargarEstadisticas();
+    } catch (error) {
+      console.error("Error al rechazar:", error);
+      alert("Error al rechazar el pago");
+    } finally {
+      setCargando(false);
+    }
+  };
 
-      const mensajeFinal = encodeURIComponent(textoMensaje);
-      const tlf = reporte.whatsapp.replace(/\D/g, '');
-      window.open(`https://wa.me/${tlf}?text=${mensajeFinal}`, '_blank');
+  const exportarExcel = async () => {
+    setCargando(true);
+    try {
+      const q = query(collection(db, "pagos"), where("rifaId", "==", rifaSeleccionada), where("estado", "==", "confirmado"));
+      const snapshot = await getDocs(q);
+      
+      if (snapshot.empty) {
+        alert("No hay pagos confirmados para exportar en esta rifa.");
+        setCargando(false);
+        return;
+      }
+
+      const datosExcel = [];
+      snapshot.docs.forEach(docSnap => {
+        const data = docSnap.data();
+        data.tickets.forEach(ticketNum => {
+          datosExcel.push({
+            "Ticket": ticketNum,
+            "Cliente": data.nombreCliente,
+            "WhatsApp": data.whatsapp,
+            "Monto Pagado (USD)": data.montoUsd / data.cantidadTickets, 
+            "Método": data.metodoPago.toUpperCase(),
+            "Referencia": data.referencia,
+            "Fecha": data.fecha ? new Date(data.fecha.toDate()).toLocaleString() : "N/A"
+          });
+        });
+      });
+
+      datosExcel.sort((a, b) => a.Ticket.localeCompare(b.Ticket));
+
+      const worksheet = XLSX.utils.json_to_sheet(datosExcel);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, "Participantes");
+      
+      const nombreRifa = listaRifas.find(r => r.id === rifaSeleccionada)?.nombre || "Rifa";
+      XLSX.writeFile(workbook, `Reporte_${nombreRifa}_${new Date().toISOString().split('T')[0]}.xlsx`);
 
     } catch (error) {
-      console.error(error);
-      alert(error.message || "Error al procesar el pago");
+      console.error("Error al exportar:", error);
+      alert("Error al generar el Excel.");
     } finally {
-      setProcesandoId(null);
+      setCargando(false);
     }
   };
 
-  const rechazarPago = async (id) => {
-    if(window.confirm("¿Rechazar este pago?")) {
-        await updateDoc(doc(db, "pagos", id), { estado: "rechazado" });
-    }
-  };
-
-  const reportesFiltrados = reportes.filter(r => {
-    const coincideRifa = filtroRifa === "todas" || r.rifaId === filtroRifa;
-    const coincideBusqueda = r.nombreCliente?.toLowerCase().includes(busqueda.toLowerCase()) || 
-                             r.referencia?.includes(busqueda);
-    return coincideRifa && coincideBusqueda;
-  });
-
-  const totalTicketsConfirmados = reportes
-    .filter(r => r.rifaId === filtroRifa && r.estado === "aprobado")
-    .reduce((acc, curr) => acc + (curr.cantidadTickets || 0), 0);
-
-  const rifaActual = listaRifas.find(r => r.id === filtroRifa);
+  const totalPagos = pagos.length;
+  const ingresosEstimados = pagos.reduce((acc, curr) => acc + (curr.montoUsd || 0), 0);
+  const rifaActualData = listaRifas.find(r => r.id === rifaSeleccionada);
+  const totalTicketsRifa = rifaActualData ? rifaActualData.maxTickets : 0;
 
   return (
-    <div className="max-w-7xl mx-auto p-6 space-y-8">
+    <div className="space-y-6">
       
-      {/* HEADER CON BOTÓN DE ARCHIVAR */}
-      <div className="flex flex-col md:flex-row justify-between items-center gap-4 bg-white p-8 rounded-[3rem] shadow-sm border border-slate-100">
+      {/* HEADER DEL DASHBOARD */}
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-slate-900/80 backdrop-blur-md p-6 rounded-[2rem] border border-slate-800 shadow-2xl">
         <div>
-          <h1 className="text-4xl font-black text-slate-900 uppercase italic tracking-tighter">Panel Control</h1>
-          <p className="text-slate-400 font-bold uppercase text-xs tracking-widest">Administración de Pagos</p>
+          <h1 className="text-3xl font-black text-white uppercase italic tracking-tighter">
+            Panel <span className="text-blue-500">Administrativo</span>
+          </h1>
+          <p className="text-slate-400 text-xs font-bold uppercase tracking-widest mt-1">Gestión de Reportes y Aprobaciones</p>
         </div>
 
-        <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto items-center">
-          {/* BOTÓN DE ARCHIVADO (Solo aparece si hay una rifa seleccionada) */}
-          {filtroRifa !== "todas" && (
-            <button 
-              onClick={archivarRifaActual}
-              disabled={archivando}
-              className={`px-6 py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all ${archivando ? 'bg-gray-200 text-gray-400' : 'bg-red-50 text-red-600 hover:bg-red-100'}`}
-            >
-              {archivando ? 'Archivando...' : '📦 Finalizar y Archivar'}
-            </button>
-          )}
-
+        <div className="flex items-center gap-4 w-full md:w-auto">
           <select 
-            onChange={(e) => setFiltroRifa(e.target.value)}
-            className="p-4 bg-slate-900 text-white rounded-2xl font-bold text-sm outline-none cursor-pointer"
+            value={rifaSeleccionada} 
+            onChange={(e) => setRifaSeleccionada(e.target.value)}
+            className="w-full md:w-64 p-3 bg-slate-950 border border-slate-700 rounded-xl font-bold text-slate-200 outline-none focus:border-blue-500"
           >
-            <option value="todas">Todas las Rifas</option>
             {listaRifas.map(rifa => (
               <option key={rifa.id} value={rifa.id}>{rifa.nombre}</option>
             ))}
           </select>
-          
-          {rifaActual && (
-            <div className="bg-blue-600 text-white p-4 rounded-2xl flex flex-col items-center min-w-[140px]">
-              <span className="text-[10px] font-black uppercase opacity-80">Tickets Vendidos</span>
-              <span className="text-xl font-black">{totalTicketsConfirmados} / {rifaActual.maxTickets}</span>
+
+          <button 
+            onClick={exportarExcel}
+            disabled={cargando}
+            className="flex items-center justify-center gap-2 bg-green-600 hover:bg-green-500 text-white px-6 py-3 rounded-xl font-black uppercase text-[10px] tracking-widest shadow-[0_0_15px_rgba(22,163,74,0.4)] active:scale-95 transition-all whitespace-nowrap"
+          >
+            📊 Exportar Excel
+          </button>
+        </div>
+      </div>
+
+      {/* ESTADÍSTICAS GLOBALES */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="bg-slate-900/80 p-5 rounded-2xl border border-slate-800 flex justify-between items-center relative overflow-hidden">
+          <div className="absolute top-0 right-0 w-16 h-16 bg-blue-600/10 rounded-bl-full"></div>
+          <div>
+            <p className="text-[9px] font-black uppercase text-slate-500 tracking-widest">Disponibles</p>
+            <h3 className="text-3xl font-black text-white">
+              {statsTickets.disponibles} <span className="text-sm text-slate-600">/ {totalTicketsRifa}</span>
+            </h3>
+          </div>
+          <div className="text-3xl relative z-10">🎟️</div>
+        </div>
+        
+        <div className="bg-slate-900/80 p-5 rounded-2xl border border-slate-800 flex justify-between items-center relative overflow-hidden">
+          <div className="absolute top-0 right-0 w-16 h-16 bg-yellow-500/10 rounded-bl-full"></div>
+          <div>
+            <p className="text-[9px] font-black uppercase text-slate-500 tracking-widest">En Revisión</p>
+            <h3 className="text-3xl font-black text-yellow-500">{statsTickets.pendientes}</h3>
+          </div>
+          <div className="text-3xl relative z-10">⏳</div>
+        </div>
+
+        <div className="bg-slate-900/80 p-5 rounded-2xl border border-slate-800 flex justify-between items-center relative overflow-hidden">
+          <div className="absolute top-0 right-0 w-16 h-16 bg-green-500/10 rounded-bl-full"></div>
+          <div>
+            <p className="text-[9px] font-black uppercase text-slate-500 tracking-widest">Confirmados</p>
+            <h3 className="text-3xl font-black text-green-500">{statsTickets.confirmados}</h3>
+          </div>
+          <div className="text-3xl relative z-10">✅</div>
+        </div>
+
+        <div className="bg-slate-900/80 p-5 rounded-2xl border border-slate-800 flex justify-between items-center">
+          <div>
+            <p className="text-[9px] font-black uppercase text-slate-500 tracking-widest">Ingresos ($)</p>
+            <h3 className="text-3xl font-black text-white">${ingresosEstimados.toFixed(2)}</h3>
+          </div>
+          <div className="text-3xl">💰</div>
+        </div>
+      </div>
+
+      {/* FILTROS Y LISTA DE PAGOS */}
+      <div className="bg-slate-900/80 backdrop-blur-md rounded-[2rem] border border-slate-800 shadow-2xl overflow-hidden">
+        
+        <div className="flex border-b border-slate-800 bg-slate-950/50">
+          <button onClick={() => setFiltroEstado("pagado")} className={`flex-1 py-4 text-[10px] font-black uppercase tracking-widest transition-colors ${filtroEstado === "pagado" ? 'text-yellow-500 border-b-2 border-yellow-500 bg-slate-900' : 'text-slate-500 hover:text-slate-300'}`}>
+            🟡 Pendientes ({filtroEstado === "pagado" ? totalPagos : '-'})
+          </button>
+          <button onClick={() => setFiltroEstado("confirmado")} className={`flex-1 py-4 text-[10px] font-black uppercase tracking-widest transition-colors ${filtroEstado === "confirmado" ? 'text-green-500 border-b-2 border-green-500 bg-slate-900' : 'text-slate-500 hover:text-slate-300'}`}>
+            🟢 Confirmados ({filtroEstado === "confirmado" ? totalPagos : '-'})
+          </button>
+          <button onClick={() => setFiltroEstado("rechazado")} className={`flex-1 py-4 text-[10px] font-black uppercase tracking-widest transition-colors ${filtroEstado === "rechazado" ? 'text-red-500 border-b-2 border-red-500 bg-slate-900' : 'text-slate-500 hover:text-slate-300'}`}>
+            🔴 Rechazados ({filtroEstado === "rechazado" ? totalPagos : '-'})
+          </button>
+        </div>
+
+        <div className="p-6">
+          {cargando ? (
+            <div className="text-center py-10 text-slate-500 font-bold uppercase text-[10px] tracking-widest">Cargando datos...</div>
+          ) : pagos.length === 0 ? (
+            <div className="text-center py-10">
+              <span className="text-4xl mb-3 block">📭</span>
+              <p className="text-slate-500 font-bold uppercase text-[10px] tracking-widest">No hay reportes en esta categoría.</p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {pagos.map(pago => (
+                <div key={pago.id} className="bg-slate-950 border border-slate-800 rounded-2xl p-5 flex flex-col md:flex-row gap-6 items-start hover:border-slate-700 transition-colors shadow-lg">
+                  
+                  {/* Foto de comprobante */}
+                  <div 
+                    className="w-full md:w-32 h-32 bg-slate-900 rounded-xl overflow-hidden cursor-pointer border border-slate-700 flex-shrink-0 group relative shadow-inner"
+                    onClick={() => setModalImagen(pago.comprobanteUrl)}
+                  >
+                    <img src={pago.comprobanteUrl} alt="Comprobante" className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" />
+                    <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                      <span className="text-white text-2xl font-black">🔍</span>
+                    </div>
+                  </div>
+
+                  {/* Información Expandida del Usuario */}
+                  <div className="flex-1 w-full space-y-3">
+                    
+                    {/* Fila 1: Nombres y Montos */}
+                    <div className="flex justify-between items-start border-b border-slate-800 pb-3">
+                      <div>
+                        <h3 className="font-black text-white uppercase text-lg leading-none">{pago.nombreCliente}</h3>
+                        <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-1">
+                          📅 {pago.fecha ? new Date(pago.fecha.toDate()).toLocaleString('es-VE') : "Fecha no registrada"}
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <span className="block font-black text-green-500 text-2xl leading-none">${pago.montoUsd?.toFixed(2)}</span>
+                        {pago.montoBs && (
+                          <span className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">
+                            Bs. {pago.montoBs.toLocaleString('es-VE')}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    
+                    {/* Fila 2: Cuadros de Datos (Transacción y Contacto) */}
+                    <div className="grid grid-cols-2 gap-3 text-[10px] font-bold uppercase tracking-widest">
+                      <div className="bg-slate-900 p-2.5 rounded-lg border border-slate-800/50">
+                        <span className="block text-slate-600 mb-0.5">Transacción</span>
+                        <span className="text-blue-400">{pago.metodoPago}</span> <span className="text-slate-300">• REF: {pago.referencia}</span>
+                      </div>
+                      <div className="bg-slate-900 p-2.5 rounded-lg border border-slate-800/50">
+                        <span className="block text-slate-600 mb-0.5">Contacto WhatsApp</span>
+                        <a href={`https://wa.me/${pago.whatsapp}`} target="_blank" rel="noopener noreferrer" className="text-green-500 hover:text-green-400 flex items-center gap-1 transition-colors">
+                          <span className="text-xs">💬</span> {pago.whatsapp}
+                        </a>
+                      </div>
+                    </div>
+                    
+                    {/* Fila 3: Tickets */}
+                    <div>
+                      <span className="text-[9px] font-black text-slate-600 uppercase tracking-widest mr-2 block mb-1">Boletos Adquiridos ({pago.cantidadTickets}):</span>
+                      <div className="flex flex-wrap gap-1">
+                        {pago.tickets?.map(t => (
+                          <span key={t} className="bg-blue-600/20 text-blue-400 text-[10px] font-black px-2 py-0.5 rounded border border-blue-500/30">
+                            {t}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Acciones */}
+                  {filtroEstado === "pagado" && (
+                    <div className="flex w-full md:w-32 flex-row md:flex-col gap-2 flex-shrink-0 mt-4 md:mt-0">
+                      <button onClick={() => aprobarPago(pago)} className="flex-1 bg-green-600 text-white hover:bg-green-500 px-4 py-3 md:py-4 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all shadow-lg shadow-green-900/20 active:scale-95">
+                        ✅ Aprobar y Avisar
+                      </button>
+                      <button onClick={() => rechazarPago(pago)} className="flex-1 bg-slate-800 text-red-500 border border-red-500/20 hover:bg-red-900/30 px-4 py-3 md:py-2 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all active:scale-95">
+                        ❌ Rechazar
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ))}
             </div>
           )}
         </div>
       </div>
 
-      {/* ... (El resto del JSX: Buscador, Tabla y Modal de imagen se mantiene igual) */}
-      <div className="relative">
-        <input 
-          type="text" placeholder="Buscar por nombre o referencia..."
-          value={busqueda} onChange={(e) => setBusqueda(e.target.value)}
-          className="w-full bg-white border-2 border-slate-50 p-5 pl-14 rounded-3xl outline-none focus:border-blue-500 font-bold shadow-sm"
-        />
-        <span className="absolute left-6 top-1/2 -translate-y-1/2 opacity-30 text-xl">🔍</span>
-      </div>
-
-      <div className="bg-white rounded-[3rem] shadow-xl overflow-hidden border border-slate-100">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="bg-slate-50 text-slate-400 uppercase text-[10px] font-black tracking-widest">
-                <th className="p-8">Cliente</th>
-                <th className="p-6 text-center">Info Rifa</th>
-                <th className="p-8">Monto Reportado</th>
-                <th className="p-8 text-center">Capture</th>
-                <th className="p-8 text-center">Acción</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-50">
-              {reportesFiltrados.map((r) => (
-                <tr key={r.id} className={`hover:bg-slate-50/50 transition-all ${r.estado !== 'pendiente' ? 'opacity-60' : ''}`}>
-                  <td className="p-8">
-                    <p className="font-extrabold text-slate-800 text-lg leading-none">{r.nombreCliente}</p>
-                    <div className="flex gap-2 mt-2 items-center">
-                      <span className="text-[9px] font-black uppercase bg-blue-50 text-blue-600 px-2 py-0.5 rounded border border-blue-100">
-                        {r.metodoPago}
-                      </span>
-                      <a href={`https://wa.me/${r.whatsapp?.replace(/\D/g,'')}`} target="_blank" rel="noreferrer" className="text-[10px] text-green-600 font-black hover:underline whitespace-nowrap">WhatsApp 🟢</a>
-                    </div>
-                  </td>
-                  <td className="p-6 text-center">
-                    <p className="text-[10px] font-black text-slate-400 uppercase italic mb-1 truncate max-w-[120px] mx-auto">{r.rifaId}</p>
-                    <span className="inline-block text-xs font-bold text-blue-600 bg-blue-50 px-4 py-1.5 rounded-full whitespace-nowrap">{r.cantidadTickets} tickets</span>
-                  </td>
-                  <td className="p-8">
-                    <div className="flex flex-col">
-                      <span className="font-black text-slate-800 text-xl tracking-tighter">${Number(r.montoUsd || 0).toFixed(2)}</span>
-                      {r.montoBs && (
-                        <span className="text-[11px] font-black text-green-600 mt-1 bg-green-50 px-2 py-0.5 rounded-md self-start whitespace-nowrap">
-                          Bs. {Number(r.montoBs).toLocaleString('es-VE', { minimumFractionDigits: 2 })}
-                        </span>
-                      )}
-                      <span className="text-[10px] text-slate-400 font-mono mt-1 font-bold italic uppercase">Ref: {r.referencia}</span>
-                    </div>
-                  </td>
-                  <td className="p-8 text-center">
-                    <button onClick={() => setComprobanteSeleccionado(r.comprobanteUrl)} className="bg-slate-100 p-3 rounded-2xl hover:bg-slate-900 group transition-all">
-                      <span className="text-xl">🖼️</span>
-                    </button>
-                  </td>
-                  <td className="p-8 text-center">
-                     {/* Lógica de botones de acción */}
-                     {procesandoId === r.id ? (
-                        <span className="animate-pulse text-blue-600 font-black text-xs uppercase">Asignando...</span>
-                      ) : r.estado === 'pendiente' ? (
-                        <div className="flex flex-col gap-2">
-                          <button onClick={() => admitirPago(r)} className="bg-green-500 hover:bg-green-600 text-white py-3 px-6 rounded-2xl font-black text-[10px] uppercase shadow-lg shadow-green-100 transition-transform active:scale-95 whitespace-nowrap">Aprobar y Enviar WA</button>
-                          <button onClick={() => rechazarPago(r.id)} className="text-[10px] font-black text-red-400 uppercase hover:text-red-600">Rechazar</button>
-                        </div>
-                      ) : (
-                        <div className="text-center">
-                          <span className={`text-[10px] font-black uppercase px-4 py-2 rounded-xl whitespace-nowrap ${r.estado === 'aprobado' ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-600'}`}>
-                            {r.estado === 'aprobado' ? '✅ Confirmado' : '❌ Rechazado'}
-                          </span>
-                        </div>
-                      )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {comprobanteSeleccionado && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/90 backdrop-blur-md" onClick={() => setComprobanteSeleccionado(null)}>
-          <div className="relative">
-            <button className="absolute -top-12 right-0 text-white font-bold text-lg">Cerrar ✕</button>
-            <img src={comprobanteSeleccionado} alt="Capture" className="max-w-full max-h-[85vh] rounded-3xl shadow-2xl border-4 border-white object-contain" />
+      {/* MODAL VISOR DE IMAGEN */}
+      {modalImagen && (
+        <div className="fixed inset-0 z-[600] flex items-center justify-center p-4 bg-black/95 backdrop-blur-xl" onClick={() => setModalImagen(null)}>
+          <div className="relative max-w-3xl w-full flex flex-col items-center">
+            <button className="absolute -top-12 right-0 text-slate-400 hover:text-white font-black text-xs uppercase tracking-widest transition-colors">CERRAR VISOR [X]</button>
+            <img src={modalImagen} alt="Comprobante Ampliado" className="w-full h-auto max-h-[85vh] object-contain rounded-2xl shadow-[0_0_50px_rgba(0,0,0,0.8)] border border-slate-700" />
           </div>
         </div>
       )}
+
     </div>
   );
 }
