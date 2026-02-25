@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { db } from '../firebase'; 
 import { collection, query, where, getDocs, doc, addDoc, runTransaction, serverTimestamp, writeBatch, orderBy, limit } from "firebase/firestore";
 import CryptoJS from 'crypto-js';
+import emailjs from '@emailjs/browser';
 
 export default function ProcesoPago({ 
   rifaId, 
@@ -33,8 +34,12 @@ export default function ProcesoPago({
   const [whatsappFormateado, setWhatsappFormateado] = useState(""); 
   const [modalStatus, setModalStatus] = useState({ visible: false, tipo: '', mensaje: '' });
 
+  // VARIABLES DE ENTORNO
   const SECRET_KEY = import.meta.env.VITE_SECRET_KEY; 
   const API_KEY_IMGBB = import.meta.env.VITE_IMGBB_KEY;
+  const EMAILJS_SERVICE = import.meta.env.VITE_EMAILJS_SERVICE_ID;
+  const EMAILJS_TEMPLATE_PIN = import.meta.env.VITE_EMAILJS_TEMPLATE_PIN;
+  const EMAILJS_PUBLIC_KEY = import.meta.env.VITE_EMAILJS_PUBLIC_KEY;
 
   const datosCuentas = {
     pagomovil: { banco: "Banesco", tlf: "04241234567", ci: "20.123.456" },
@@ -59,13 +64,13 @@ export default function ProcesoPago({
 
     setCargando(true);
     try {
-      // 1. BÚSQUEDA SECUENCIAL INTELIGENTE (Costos mínimos en Firebase)
+      // 1. BÚSQUEDA SECUENCIAL INTELIGENTE
       const ticketsRef = collection(db, "rifas", rifaId, "tickets");
       const qDisponibles = query(
         ticketsRef, 
         where("estado", "==", "disponible"),
         orderBy("numero", "asc"), // De menor a mayor siempre
-        limit(cantidad)           // Solo pide los necesarios (ej. 2, 5 o 10)
+        limit(Number(cantidad))   // Solo pide los necesarios
       );
       
       const snapshot = await getDocs(qDisponibles);
@@ -76,7 +81,6 @@ export default function ProcesoPago({
 
       // 2. Transacción Segura en Firebase
       const asignados = await runTransaction(db, async (transaction) => {
-        // A) LECTURAS
         const comprobaciones = [];
         for (const docSnap of snapshot.docs) {
           const ref = doc(db, "rifas", rifaId, "tickets", docSnap.id);
@@ -84,14 +88,12 @@ export default function ProcesoPago({
           comprobaciones.push({ snap, ref, numero: docSnap.data().numero });
         }
 
-        // B) VALIDACIÓN
         for (const item of comprobaciones) {
           if (item.snap.data().estado !== "disponible") {
             throw new Error("Colisión de red. Alguien tomó un número en este instante. Intenta de nuevo.");
           }
         }
 
-        // C) ESCRITURAS
         for (const item of comprobaciones) {
           transaction.update(item.ref, { 
             estado: "reservado",
@@ -102,12 +104,26 @@ export default function ProcesoPago({
         return comprobaciones.map(item => item.numero);
       });
 
-      // 3. Generar PIN de 4 dígitos (Simulación de correo)
+      // 3. Generar PIN de 4 dígitos
       const pin = Math.floor(1000 + Math.random() * 9000).toString();
       setCodigoGenerado(pin);
       
-      // Simulación visual del correo para que lo puedas probar
-      alert(`[SIMULACIÓN DE CORREO]\n\nHemos enviado un correo a ${correo}:\n\nTu PIN de seguridad es: ${pin}`);
+      // ENVÍO DE CORREO REAL CON EMAILJS Y VARIABLES DE ENTORNO
+      try {
+        await emailjs.send(
+          EMAILJS_SERVICE,
+          EMAILJS_TEMPLATE_PIN,
+          {
+            to_email: correo,
+            pin: pin,
+          },
+          EMAILJS_PUBLIC_KEY
+        );
+        console.log("Correo de PIN enviado con éxito");
+      } catch (err) {
+        console.error("Error enviando el correo:", err);
+        return mostrarAviso('error', 'Hubo un error al enviar el código a tu correo. Por favor, verifica que esté bien escrito.');
+      }
 
       setTicketsTemporales(asignados);
       setWhatsappFormateado(numLimpio);
@@ -222,18 +238,70 @@ export default function ProcesoPago({
               1. Selección y Datos
             </h2>
             
-            <div className="mb-6">
-              <label className="text-[10px] font-black uppercase text-slate-400 ml-1 tracking-widest block mb-2">Cantidad de boletos (Mínimo 2)</label>
-              <div className="grid grid-cols-4 gap-2 mb-3">
+            {/* SECCIÓN DE CANTIDAD REFORZADA */}
+            <div className="mb-8 space-y-4">
+              <label className="text-[10px] font-black uppercase text-slate-400 ml-1 tracking-[0.2em] block text-center md:text-left">
+                ¿Cuántos boletos deseas? (Mínimo 2)
+              </label>
+
+              {/* SELECTOR CON INPUT EDITABLE */}
+              <div className="flex items-center justify-between bg-slate-950 p-2 rounded-[2.5rem] border-2 border-slate-800 shadow-inner max-w-[280px] mx-auto md:mx-0">
+                <button 
+                  type="button"
+                  onClick={() => setCantidad(Math.max(2, Number(cantidad) - 1))}
+                  className="w-14 h-14 flex items-center justify-center bg-slate-900 text-white rounded-full border border-slate-700 active:scale-90 transition-transform text-2xl font-black shadow-lg"
+                >
+                  -
+                </button>
+                
+                <div className="flex flex-col items-center">
+                  {/* Input para modificar manualmente */}
+                  <input 
+                    type="number"
+                    value={cantidad}
+                    onChange={(e) => {
+                      const val = parseInt(e.target.value);
+                      if (isNaN(val)) {
+                         setCantidad(""); 
+                      } else {
+                         setCantidad(val);
+                      }
+                    }}
+                    onBlur={() => {
+                      // Al salir del campo, forzamos el mínimo de 2
+                      if (cantidad < 2 || cantidad === "") setCantidad(2);
+                    }}
+                    className="w-20 bg-transparent text-center text-3xl font-black text-blue-500 italic outline-none hide-arrows"
+                    style={{ WebkitAppearance: 'none', MozAppearance: 'textfield' }} // Oculta las flechitas por defecto del input number
+                  />
+                  <span className="text-[8px] text-slate-500 uppercase font-bold tracking-tighter">Boletos</span>
+                </div>
+
+                <button 
+                  type="button"
+                  onClick={() => setCantidad(Number(cantidad) + 1)}
+                  className="w-14 h-14 flex items-center justify-center bg-blue-600 text-white rounded-full border border-blue-400/30 active:scale-90 transition-transform text-2xl font-black shadow-lg shadow-blue-900/20"
+                >
+                  +
+                </button>
+              </div>
+
+              {/* BOTONES DE SUMA RÁPIDA (Comportamiento Aditivo) */}
+              <div className="grid grid-cols-4 gap-2 mt-4">
                 {[2, 5, 10, 20].map(num => (
-                  <button key={num} type="button" onClick={() => setCantidad(num)}
-                    className={`py-3 rounded-2xl font-black transition-all active:scale-95 ${cantidad === num ? 'bg-blue-600 text-white shadow-[0_0_15px_rgba(37,99,235,0.4)]' : 'bg-slate-950 text-slate-500 border border-slate-800 hover:border-slate-600'}`}>
+                  <button 
+                    key={num} 
+                    type="button" 
+                    onClick={() => setCantidad(Number(cantidad) + num)}
+                    className="bg-slate-900 border border-slate-800 text-slate-300 py-3 rounded-xl font-black text-xs transition-all active:scale-95 hover:border-blue-500/50 hover:text-blue-400"
+                  >
                     +{num}
                   </button>
                 ))}
               </div>
-              <input type="number" min="2" value={cantidad} onChange={(e) => setCantidad(Math.max(2, parseInt(e.target.value) || 2))}
-                className="w-full p-4 bg-slate-950 border-2 border-dashed border-slate-700 rounded-2xl text-center font-black text-2xl outline-none text-blue-500 focus:border-blue-600 transition-colors shadow-inner" />
+              <p className="text-[9px] text-slate-600 text-center md:text-left italic font-bold">
+                * Toca la cantidad para escribir, o usa los botones para sumar
+              </p>
             </div>
 
             <div className="space-y-4">
@@ -256,7 +324,7 @@ export default function ProcesoPago({
               </div>
               
               <div>
-                <label className="text-[10px] font-black uppercase text-slate-500 ml-1 mb-1 block">Correo Electrónico</label>
+                <label className="text-[10px] font-black uppercase text-slate-500 ml-1 mb-1 block">Correo Electrónico (Verificación)</label>
                 <input type="email" placeholder="tu@correo.com" required value={correo} onChange={(e) => setCorreo(e.target.value)}
                   className="w-full p-4 bg-slate-950/50 border border-slate-800 rounded-2xl outline-none font-bold text-white focus:border-blue-600 transition-all placeholder:text-slate-700 shadow-inner" />
               </div>

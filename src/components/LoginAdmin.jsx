@@ -4,10 +4,14 @@ export default function LoginAdmin({ onLogin }) {
   const [clave, setClave] = useState("");
   const [error, setError] = useState(false);
 
+  // Leer la contraseña desde el archivo .env
+  const ADMIN_PASSWORD = import.meta.env.VITE_ADMIN_PASSWORD;
+
   const handleSubmit = (e) => {
     e.preventDefault();
-    // Aquí defines la clave temporal para tu jefe
-    if (clave === "2026") { 
+    
+    // Comparamos lo que escribe el usuario con la variable de entorno
+    if (clave === ADMIN_PASSWORD) { 
       onLogin(true);
     } else {
       setError(true);
@@ -53,8 +57,8 @@ export default function LoginAdmin({ onLogin }) {
                 value={clave}
                 onChange={(e) => setClave(e.target.value)}
                 placeholder="••••"
-                maxLength={4} // Limitamos a 4 caracteres visualmente
-                className={`w-full text-center text-4xl tracking-[0.5em] p-5 bg-slate-950/50 border-2 rounded-2xl outline-none font-black text-white transition-all shadow-inner ${
+                // NOTA: Eliminamos el maxLength={4} temporalmente por si tu contraseña nueva ("gana2026.") es más larga
+                className={`w-full text-center text-4xl tracking-[0.2em] p-5 bg-slate-950/50 border-2 rounded-2xl outline-none font-black text-white transition-all shadow-inner ${
                   error 
                   ? 'border-red-500 focus:border-red-500 text-red-500 placeholder:text-red-900/50 animate-pulse' 
                   : 'border-slate-800 focus:border-blue-600 placeholder:text-slate-700'
