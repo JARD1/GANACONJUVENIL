@@ -20,18 +20,15 @@ export default function ConsultaTickets() {
     if (!numLimpio.startsWith('58')) numLimpio = '58' + numLimpio;
 
     try {
-      // Consultamos todos los pagos de este número sin importar el estado inicial
+      // 🚀 OPTIMIZACIÓN V2: Filtramos el estado "rechazado" directamente en la consulta (usando in)
       const q = query(
         collection(db, "pagos"),
-        where("whatsapp", "==", numLimpio)
+        where("whatsapp", "==", numLimpio),
+        where("estado", "in", ["pagado", "confirmado"])
       );
 
       const querySnapshot = await getDocs(q);
-      
-      // Filtramos para no mostrar los rechazados
-      const docs = querySnapshot.docs
-        .map(doc => doc.data())
-        .filter(pago => pago.estado === "confirmado" || pago.estado === "pagado");
+      const docs = querySnapshot.docs.map(doc => doc.data());
 
       if (docs.length === 0) {
         setError("No se encontraron boletos activos para este número de teléfono.");
@@ -80,14 +77,11 @@ export default function ConsultaTickets() {
               Ingresa tu WhatsApp registrado
             </label>
             
-            {/* INPUT GROUP REPARADO (Sin solapamiento) */}
+            {/* INPUT GROUP */}
             <div className="flex items-stretch bg-slate-950/50 border-2 border-slate-800 rounded-2xl focus-within:border-blue-600 transition-all shadow-inner overflow-hidden group">
-              {/* Bloque +58 Fijo */}
               <div className="flex items-center justify-center px-4 md:px-5 border-r border-slate-800 bg-slate-900/80 text-blue-500 font-black text-lg md:text-xl select-none">
                 +58
               </div>
-              
-              {/* Campo de texto Flexible */}
               <input 
                 type="tel" 
                 placeholder="0412 000 0000"

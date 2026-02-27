@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../firebase'; 
-import { collection, query, where, onSnapshot } from "firebase/firestore"; // Cambiamos getDocs por onSnapshot
+import { collection, query, where, getDocs } from "firebase/firestore"; // Cambio: Usamos getDocs en lugar de onSnapshot
 
 export default function Podio({ rifaId }) {
   const [topUsuarios, setTopUsuarios] = useState([]);
@@ -9,42 +9,44 @@ export default function Podio({ rifaId }) {
   useEffect(() => {
     if (!rifaId) return;
 
-    // Buscamos los pagos confirmados de esta rifa
-    const q = query(
-      collection(db, "pagos"), 
-      where("estado", "==", "confirmado"),
-      where("rifaId", "==", rifaId)
-    );
-    
-    // onSnapshot escucha la base de datos EN TIEMPO REAL
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const conteoBoletos = {};
-
-      snapshot.docs.forEach(docSnap => {
-        const data = docSnap.data();
-        const tlf = data.whatsapp;
+    const cargarPodio = async () => {
+      try {
+        // Buscamos los pagos confirmados de esta rifa
+        const q = query(
+          collection(db, "pagos"), 
+          where("estado", "==", "confirmado"),
+          where("rifaId", "==", rifaId)
+        );
         
-        if (!conteoBoletos[tlf]) {
-          const primerNombre = data.nombreCliente.split(' ')[0]; 
-          conteoBoletos[tlf] = { nombre: primerNombre, tickets: 0 };
-        }
-        conteoBoletos[tlf].tickets += Number(data.cantidadTickets || 0);
-      });
+        // getDocs lee la base de datos UNA SOLA VEZ (Ahorro masivo de lecturas)
+        const snapshot = await getDocs(q);
+        const conteoBoletos = {};
 
-      // Convertimos a array, ordenamos por cantidad de tickets y tomamos los top 3
-      const ordenados = Object.values(conteoBoletos)
-        .sort((a, b) => b.tickets - a.tickets)
-        .slice(0, 3);
+        snapshot.docs.forEach(docSnap => {
+          const data = docSnap.data();
+          const tlf = data.whatsapp;
+          
+          if (!conteoBoletos[tlf]) {
+            const primerNombre = data.nombreCliente.split(' ')[0]; 
+            conteoBoletos[tlf] = { nombre: primerNombre, tickets: 0 };
+          }
+          conteoBoletos[tlf].tickets += Number(data.cantidadTickets || 0);
+        });
 
-      setTopUsuarios(ordenados);
-      setCargando(false);
-    }, (error) => {
-      console.error("Error al cargar el podio en tiempo real:", error);
-      setCargando(false);
-    });
+        // Convertimos a array, ordenamos por cantidad de tickets y tomamos los top 3
+        const ordenados = Object.values(conteoBoletos)
+          .sort((a, b) => b.tickets - a.tickets)
+          .slice(0, 3);
 
-    // Desmontar el listener si el componente se cierra
-    return () => unsubscribe();
+        setTopUsuarios(ordenados);
+      } catch (error) {
+        console.error("Error al cargar el podio:", error);
+      } finally {
+        setCargando(false);
+      }
+    };
+
+    cargarPodio();
   }, [rifaId]);
 
   if (cargando || topUsuarios.length === 0) return null; 
@@ -56,7 +58,7 @@ export default function Podio({ rifaId }) {
   return (
     <div className="w-full pt-4 px-1 animate-in fade-in zoom-in duration-700 relative z-20">
       
-      {/* Contenedor Flex corregido: flex-1 a cada columna garantiza que siempre quepan los 3 */}
+      {/* Contenedor Flex: flex-1 a cada columna garantiza que siempre quepan los 3 */}
       <div className="flex justify-between items-end gap-1 h-32">
         
         {/* ================= 2DO LUGAR (PLATA) ================= */}

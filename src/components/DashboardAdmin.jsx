@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../firebase'; 
-import { collection, query, where, getDocs, doc, writeBatch, getCountFromServer, orderBy, limit, getDoc, serverTimestamp } from "firebase/firestore";
+import { collection, query, where, getDocs, doc, writeBatch, orderBy, limit, getDoc, serverTimestamp, updateDoc, arrayUnion, arrayRemove } from "firebase/firestore";
 import { listaRifas } from '../data/rifas.js';
 import * as XLSX from 'xlsx';
 import emailjs from '@emailjs/browser';
@@ -20,7 +20,6 @@ export default function DashboardAdmin() {
   const [ticketData, setTicketData] = useState(null);
 
   const [modalVenta, setModalVenta] = useState(false);
-  // Añadimos referencia al estado inicial
   const [formVenta, setFormVenta] = useState({ nombre: "", whatsapp: "", tickets: "", monto: "", metodoPago: "", referencia: "" });
 
   const EMAILJS_SERVICE = import.meta.env.VITE_EMAILJS_SERVICE_ID;
@@ -35,15 +34,26 @@ export default function DashboardAdmin() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rifaSeleccionada, filtroEstado]);
 
+  // --- ARQUITECTURA V2: ESTADÍSTICAS POR AGREGACIÓN ---
   const cargarEstadisticas = async () => {
     try {
-      const ticketsRef = collection(db, "rifas", rifaSeleccionada, "tickets");
-      const [snapDisp, snapConf, snapPend] = await Promise.all([
-        getCountFromServer(query(ticketsRef, where("estado", "==", "disponible"))),
-        getCountFromServer(query(ticketsRef, where("estado", "==", "confirmado"))),
-        getCountFromServer(query(ticketsRef, where("estado", "==", "pagado"))) 
-      ]);
-      setStatsTickets({ disponibles: snapDisp.data().count, confirmados: snapConf.data().count, pendientes: snapPend.data().count });
+      // 1. Obtener los libres directo de la tómbola
+      const rifaSnap = await getDoc(doc(db, "rifas", rifaSeleccionada));
+      const libres = rifaSnap.data()?.ticketsLibres?.length || 0;
+
+      // 2. Contar los ocupados revisando los pagos (Solo confirmados y pendientes)
+      const qPagos = query(collection(db, "pagos"), where("rifaId", "==", rifaSeleccionada));
+      const pagosSnap = await getDocs(qPagos);
+      
+      let confirmados = 0;
+      let pendientes = 0;
+      
+      pagosSnap.forEach(p => {
+        if (p.data().estado === "confirmado") confirmados += p.data().cantidadTickets;
+        if (p.data().estado === "pagado") pendientes += p.data().cantidadTickets;
+      });
+
+      setStatsTickets({ disponibles: libres, confirmados, pendientes });
     } catch (error) {
       console.error("Error al cargar estadísticas:", error);
     }
@@ -69,29 +79,43 @@ export default function DashboardAdmin() {
     }
   };
 
+  // --- ARQUITECTURA V2: CONCILIACIÓN DE FANTASMAS ---
   const limpiarTicketsFantasmas = async () => {
-    if (!window.confirm("⚠️ ¿Buscar carritos abandonados y liberarlos?")) return;
+    if (!window.confirm("⚠️ El sistema cruzará la tómbola con las ventas para hallar tickets perdidos. ¿Proceder?")) return;
     setCargando(true);
     try {
-      const q = query(collection(db, "rifas", rifaSeleccionada, "tickets"), where("estado", "==", "reservado"));
-      const snapshot = await getDocs(q);
-      if (snapshot.empty) {
-        alert("✨ ¡Todo limpio! No hay tickets atascados.");
-        setCargando(false);
-        return;
-      }
-      let lotes = [];
-      let batch = writeBatch(db);
-      let contador = 0;
-      snapshot.docs.forEach((docSnap) => {
-        batch.update(docSnap.ref, { estado: "disponible", reservadoPor: null });
-        contador++;
-        if (contador === 500) { lotes.push(batch.commit()); batch = writeBatch(db); contador = 0; }
+      const rifaSnap = await getDoc(doc(db, "rifas", rifaSeleccionada));
+      const dataRifa = rifaSnap.data();
+      const ticketsLibresActuales = dataRifa.ticketsLibres || [];
+      const totalTickets = dataRifa.totalTicketsGenerados;
+
+      // Generar el mapa completo de tickets teóricos
+      const arrayTodos = Array.from({ length: totalTickets }, (_, i) => i.toString().padStart(4, '0'));
+
+      // Buscar los tickets legalmente ocupados en los pagos
+      const qPagos = query(collection(db, "pagos"), where("rifaId", "==", rifaSeleccionada));
+      const pagosSnap = await getDocs(qPagos);
+      let ticketsOcupadosValidos = [];
+      
+      pagosSnap.forEach(p => {
+        if (["pagado", "confirmado"].includes(p.data().estado)) {
+          ticketsOcupadosValidos.push(...p.data().tickets);
+        }
       });
-      if (contador > 0) { lotes.push(batch.commit()); }
-      await Promise.all(lotes);
-      alert(`✅ Se liberaron ${snapshot.size} tickets fantasma.`);
-      cargarEstadisticas();
+
+      // Detectar los fantasmas (Aquellos que no están ni libres ni en un pago válido)
+      const faltantes = arrayTodos.filter(t => !ticketsLibresActuales.includes(t) && !ticketsOcupadosValidos.includes(t));
+
+      if (faltantes.length > 0) {
+        // Devolver los fantasmas a la tómbola
+        await updateDoc(doc(db, "rifas", rifaSeleccionada), { 
+          ticketsLibres: arrayUnion(...faltantes) 
+        });
+        alert(`✨ Operación exitosa. Se rescataron ${faltantes.length} tickets perdidos en el limbo.`);
+        cargarEstadisticas();
+      } else {
+        alert("🛡️ ¡Base de datos impecable! No hay tickets atascados.");
+      }
     } catch (error) {
       alert("Error al limpiar los tickets.");
     } finally {
@@ -99,25 +123,23 @@ export default function DashboardAdmin() {
     }
   };
 
+  // --- REVERTIR A PENDIENTE (V2) ---
   const revertirPago = async (pago) => {
     if (!window.confirm(`¿Devolver el pago de ${pago.nombreCliente} a PENDIENTE?`)) return;
     setCargando(true);
     try {
       if (pago.estado === "rechazado") {
+        // Si estaba rechazado, los tickets están libres. Hay que quitarlos de la tómbola de nuevo.
+        const rifaSnap = await getDoc(doc(db, "rifas", pago.rifaId));
+        const libres = rifaSnap.data().ticketsLibres || [];
         for (const num of pago.tickets) {
-          const tRef = doc(db, "rifas", pago.rifaId, "tickets", num);
-          const tSnap = await getDoc(tRef);
-          if (tSnap.exists() && tSnap.data().estado !== "disponible") {
-            throw new Error(`El ticket ${num} ya fue tomado por otra persona. No puedes revertir este rechazo.`);
-          }
+          if (!libres.includes(num)) throw new Error(`El ticket ${num} ya fue tomado por otra persona. No puedes revertir este rechazo.`);
         }
+        await updateDoc(doc(db, "rifas", pago.rifaId), { ticketsLibres: arrayRemove(...pago.tickets) });
       }
-      const batch = writeBatch(db);
-      batch.update(doc(db, "pagos", pago.id), { estado: "pagado" });
-      pago.tickets.forEach(num => {
-        batch.update(doc(db, "rifas", pago.rifaId, "tickets", num), { estado: "pagado" });
-      });
-      await batch.commit();
+      
+      await updateDoc(doc(db, "pagos", pago.id), { estado: "pagado" });
+      
       alert("✅ Pago devuelto a Pendiente exitosamente.");
       cargarPagos();
       cargarEstadisticas();
@@ -128,16 +150,12 @@ export default function DashboardAdmin() {
     }
   };
 
+  // --- APROBAR PAGO (V2) ---
   const aprobarPago = async (pago) => {
     if (!window.confirm(`¿Aprobar los tickets de ${pago.nombreCliente}?`)) return;
     setCargando(true);
     try {
-      const batch = writeBatch(db);
-      batch.update(doc(db, "pagos", pago.id), { estado: "confirmado" });
-      pago.tickets.forEach(num => {
-        batch.update(doc(db, "rifas", pago.rifaId, "tickets", num), { estado: "confirmado" });
-      });
-      await batch.commit();
+      await updateDoc(doc(db, "pagos", pago.id), { estado: "confirmado" });
 
       try {
         await emailjs.send(EMAILJS_SERVICE, EMAILJS_TEMPLATE_TICKETS, {
@@ -149,31 +167,51 @@ export default function DashboardAdmin() {
     } catch (error) { alert("Error al aprobar"); } finally { setCargando(false); }
   };
 
+  // --- RECHAZAR PAGO (V2) ---
   const rechazarPago = async (pago) => {
     if (!window.confirm(`¿RECHAZAR el pago de ${pago.nombreCliente}?`)) return;
     setCargando(true);
     try {
-      const batch = writeBatch(db);
-      batch.update(doc(db, "pagos", pago.id), { estado: "rechazado" });
-      pago.tickets.forEach(num => {
-        batch.update(doc(db, "rifas", pago.rifaId, "tickets", num), { estado: "disponible", reservadoPor: null });
-      });
-      await batch.commit();
+      // 1. Actualizar estado del pago
+      await updateDoc(doc(db, "pagos", pago.id), { estado: "rechazado" });
+      // 2. Devolver los tickets a la tómbola
+      await updateDoc(doc(db, "rifas", pago.rifaId), { ticketsLibres: arrayUnion(...pago.tickets) });
+      
       cargarPagos(); cargarEstadisticas();
     } catch (error) { alert("Error al rechazar"); } finally { setCargando(false); }
   };
 
+  // --- AUDITOR DE TICKETS (V2) ---
   const auditarTicket = async (e) => {
     e.preventDefault();
     if (!ticketQuery) return;
     const numLimpio = ticketQuery.trim().padStart(4, '0');
     setCargando(true);
+    
     try {
-      const tSnap = await getDoc(doc(db, "rifas", rifaSeleccionada, "tickets", numLimpio));
-      if (tSnap.exists()) {
-        setTicketData({ id: tSnap.id, ...tSnap.data() });
+      // 1. Chequear si está en la tómbola
+      const rifaSnap = await getDoc(doc(db, "rifas", rifaSeleccionada));
+      const libres = rifaSnap.data()?.ticketsLibres || [];
+      
+      if (libres.includes(numLimpio)) {
+        setTicketData({ id: numLimpio, estado: "disponible", reservadoPor: "Nadie" });
       } else {
-        alert("Ese número de ticket no existe en la base de datos.");
+        // 2. Si no está en la tómbola, buscar en los pagos
+        const q = query(collection(db, "pagos"), where("rifaId", "==", rifaSeleccionada), where("tickets", "array-contains", numLimpio));
+        const pSnap = await getDocs(q);
+        
+        if (!pSnap.empty) {
+          const pagoActivo = pSnap.docs.find(d => ["pagado", "confirmado"].includes(d.data().estado)) || pSnap.docs[0];
+          setTicketData({ 
+            id: numLimpio, 
+            estado: pagoActivo.data().estado, 
+            reservadoPor: pagoActivo.data().whatsapp,
+            nombre: pagoActivo.data().nombreCliente
+          });
+        } else {
+          // 3. Es un fantasma
+          setTicketData({ id: numLimpio, estado: "Fantasma (Atascado)", reservadoPor: "Error de red", fantasma: true });
+        }
       }
     } catch (error) {
       console.error(error);
@@ -181,12 +219,10 @@ export default function DashboardAdmin() {
   };
 
   const forzarLiberacionTicket = async () => {
-    if (!window.confirm(`🚨 PELIGRO: Vas a forzar la liberación del ticket ${ticketData.id}. ¿Continuar?`)) return;
+    if (!window.confirm(`🚨 PELIGRO: Vas a regresar el ticket ${ticketData.id} a la tómbola. ¿Continuar?`)) return;
     setCargando(true);
     try {
-      const batch = writeBatch(db);
-      batch.update(doc(db, "rifas", rifaSeleccionada, "tickets", ticketData.id), { estado: "disponible", reservadoPor: null });
-      await batch.commit();
+      await updateDoc(doc(db, "rifas", rifaSeleccionada), { ticketsLibres: arrayUnion(ticketData.id) });
       alert(`Ticket ${ticketData.id} liberado a la fuerza.`);
       setTicketData(null);
       setTicketQuery("");
@@ -194,6 +230,7 @@ export default function DashboardAdmin() {
     } catch (error) { alert("Error al liberar"); } finally { setCargando(false); }
   };
 
+  // --- VENTA MANUAL (V2) ---
   const procesarVentaManual = async (e) => {
     e.preventDefault();
     setCargando(true);
@@ -204,29 +241,26 @@ export default function DashboardAdmin() {
       const numerosArreglo = formVenta.tickets.split(",").map(n => n.trim().padStart(4, '0')).filter(n => n !== "0000" && n !== "");
       if (numerosArreglo.length === 0) throw new Error("Debe ingresar al menos un ticket válido.");
 
+      // Verificar disponibilidad en la tómbola
+      const rifaSnap = await getDoc(doc(db, "rifas", rifaSeleccionada));
+      const libres = rifaSnap.data()?.ticketsLibres || [];
+      
       for (const num of numerosArreglo) {
-        const tSnap = await getDoc(doc(db, "rifas", rifaSeleccionada, "tickets", num));
-        if (!tSnap.exists() || tSnap.data().estado !== "disponible") {
-          throw new Error(`El ticket ${num} no está disponible (Estado: ${tSnap.data()?.estado}).`);
-        }
+        if (!libres.includes(num)) throw new Error(`El ticket ${num} ya fue vendido o no está disponible.`);
       }
 
-      const batch = writeBatch(db);
-      numerosArreglo.forEach(num => {
-        batch.update(doc(db, "rifas", rifaSeleccionada, "tickets", num), { estado: "confirmado" });
-      });
+      // 1. Extraer de la tómbola
+      await updateDoc(doc(db, "rifas", rifaSeleccionada), { ticketsLibres: arrayRemove(...numerosArreglo) });
 
-      // Aseguramos que el monto no sea negativo
+      // 2. Crear el pago
       const montoAbsoluto = Math.abs(Number(formVenta.monto)) || 0;
-
-      const pagoRef = doc(collection(db, "pagos"));
-      batch.set(pagoRef, {
+      await addDoc(collection(db, "pagos"), {
         nombreCliente: formVenta.nombre + " (Manual)",
         whatsapp: formVenta.whatsapp,
         correo: "Venta Directa",
         direccion: "Taquilla",
         metodoPago: formVenta.metodoPago,
-        referencia: formVenta.referencia, // Referencia incluida
+        referencia: formVenta.referencia, 
         rifaId: rifaSeleccionada,
         cantidadTickets: numerosArreglo.length,
         tickets: numerosArreglo,
@@ -237,7 +271,6 @@ export default function DashboardAdmin() {
         comprobanteUrl: ""
       });
 
-      await batch.commit();
       alert("✅ Venta manual registrada con éxito.");
       setModalVenta(false);
       setFormVenta({ nombre: "", whatsapp: "", tickets: "", monto: "", metodoPago: "", referencia: "" });
@@ -255,7 +288,7 @@ export default function DashboardAdmin() {
     try {
       const q = query(collection(db, "pagos"), where("rifaId", "==", rifaSeleccionada), where("estado", "==", "confirmado"));
       const snapshot = await getDocs(q);
-      if (snapshot.empty) { alert("No hay pagos."); setCargando(false); return; }
+      if (snapshot.empty) { alert("No hay pagos confirmados para exportar."); setCargando(false); return; }
       const nombreRifa = listaRifas.find(r => r.id === rifaSeleccionada)?.nombre || "Rifa";
       let totalRecaudadoUSD = 0, totalRecaudadoBS = 0;
       const datosExcel = [ ["🏆 GANA CON JUVENIL - REPORTE OFICIAL 🏆"], [""], ["Sorteo:", nombreRifa, "", "", "Fecha Reporte:", new Date().toLocaleDateString('es-VE')], [""], ["TICKET", "CLIENTE", "WHATSAPP", "CORREO", "DIRECCIÓN (ESTADO/CIUDAD)", "MÉTODO", "REFERENCIA", "MONTO ($)", "MONTO (Bs)", "FECHA COMPRA"] ];
@@ -307,7 +340,7 @@ export default function DashboardAdmin() {
             🔎 Auditar
           </button>
 
-          <button onClick={limpiarTicketsFantasmas} className="flex-1 sm:flex-none bg-slate-800 text-red-400 border border-red-500/30 px-4 py-3 rounded-xl font-black uppercase text-[10px] tracking-widest transition-all">
+          <button onClick={limpiarTicketsFantasmas} className="flex-1 sm:flex-none bg-slate-800 text-red-400 border border-red-500/30 px-4 py-3 rounded-xl font-black uppercase text-[10px] tracking-widest transition-all hover:bg-red-500/10">
             🧹 Limpiar
           </button>
 
@@ -345,7 +378,7 @@ export default function DashboardAdmin() {
         <div className="p-4 border-b border-slate-800 bg-slate-950/50 flex justify-between items-center flex-wrap gap-4">
           <div className="relative w-full md:flex-1 max-w-xl">
             <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 text-lg">🔍</span>
-            <input type="text" placeholder="Buscar..." value={busqueda} onChange={(e) => setBusqueda(e.target.value)} className="w-full pl-12 pr-4 py-3 bg-slate-900 border border-slate-700 rounded-xl font-bold text-slate-200 outline-none focus:border-blue-500 text-xs uppercase" />
+            <input type="text" placeholder="Buscar Cliente, Ref, Ticket..." value={busqueda} onChange={(e) => setBusqueda(e.target.value)} className="w-full pl-12 pr-4 py-3 bg-slate-900 border border-slate-700 rounded-xl font-bold text-slate-200 outline-none focus:border-blue-500 text-xs uppercase" />
           </div>
         </div>
 
@@ -425,7 +458,7 @@ export default function DashboardAdmin() {
 
               <div>
                 <label className="text-[10px] font-black uppercase text-slate-500 block mb-1">Números a asignar (Separados por coma)</label>
-                <input type="text" placeholder="Ej. 5, 12, 105" required value={formVenta.tickets} onChange={e => setFormVenta({...formVenta, tickets: e.target.value})} className="w-full p-4 bg-slate-950 border border-slate-800 rounded-xl outline-none font-black tracking-widest text-blue-400 focus:border-blue-500" />
+                <input type="text" placeholder="Ej. 0005, 0012, 0105" required value={formVenta.tickets} onChange={e => setFormVenta({...formVenta, tickets: e.target.value})} className="w-full p-4 bg-slate-950 border border-slate-800 rounded-xl outline-none font-black tracking-widest text-blue-400 focus:border-blue-500" />
               </div>
             </div>
             <div className="flex gap-3 mt-8">
@@ -454,11 +487,12 @@ export default function DashboardAdmin() {
                 <span className={`inline-block px-3 py-1 mt-1 rounded text-xs font-black uppercase tracking-widest ${ticketData.estado === 'disponible' ? 'bg-green-500/20 text-green-500' : ticketData.estado === 'confirmado' ? 'bg-blue-500/20 text-blue-500' : 'bg-yellow-500/20 text-yellow-500'}`}>
                   {ticketData.estado}
                 </span>
-                {ticketData.reservadoPor && <p className="text-[10px] font-bold text-slate-500 mt-2">Teléfono: {ticketData.reservadoPor}</p>}
+                {ticketData.reservadoPor && <p className="text-[10px] font-bold text-slate-500 mt-2">Usuario: {ticketData.nombre || 'N/A'}</p>}
+                {ticketData.reservadoPor && <p className="text-[10px] font-bold text-slate-500 mt-1">Ref: {ticketData.reservadoPor}</p>}
                 
                 {ticketData.estado !== 'disponible' && (
                   <button onClick={forzarLiberacionTicket} className="w-full mt-4 bg-red-600/20 border border-red-500/50 hover:bg-red-600 text-red-500 hover:text-white py-3 rounded-xl font-black text-[10px] uppercase transition-colors active:scale-95">
-                    ⚠️ Forzar Liberación
+                    ⚠️ Devolver a la Tómbola
                   </button>
                 )}
               </div>

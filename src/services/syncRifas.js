@@ -1,58 +1,43 @@
 // src/services/syncRifas.js
 import { db } from '../firebase'; 
-import { listaRifas } from '../data/rifas.js'; // <--- CAMBIO AQUÍ
-import { doc, setDoc, getDoc, collection, writeBatch } from "firebase/firestore";
+import { listaRifas } from '../data/rifas.js'; 
+import { doc, setDoc, getDoc } from "firebase/firestore";
 
 /**
+ * ARQUITECTURA V2: EL POOL DE MEMORIA
  * Recorre la lista local de rifas y las crea en Firestore si no existen.
- * Genera automáticamente el inventario de tickets basado en maxTickets.
+ * Guarda todos los números disponibles en un ÚNICO arreglo dentro del documento,
+ * reduciendo el costo de base de datos a $0.
  */
 export const sincronizarInventario = async () => {
   try {
     for (const rifa of listaRifas) {
-      // Referencia al documento de la rifa usando su ID de rifas.js
+      // Referencia al documento único de la rifa
       const rifaRef = doc(db, "rifas", rifa.id);
       const docSnap = await getDoc(rifaRef);
 
-      // Solo si la rifa NO existe en Firebase, procedemos a crearla
+      // Solo si la rifa NO existe en Firebase, la creamos
       if (!docSnap.exists()) {
-        console.log(`🚀 Creando base de datos para: ${rifa.nombre}...`);
+        console.log(`🚀 Creando base de datos optimizada para: ${rifa.nombre}...`);
         
-        // 1. Guardar metadatos de la rifa
+        // 1. Generar el Arreglo (Array) gigante con todos los números (ej. ["0000", "0001", ..., "9999"])
+        const arrayTicketsLibres = Array.from({ length: rifa.maxTickets }, (_, i) => 
+          i.toString().padStart(4, '0')
+        );
+
+        // 2. Guardar el documento con el Array incluido (¡Una sola escritura!)
         await setDoc(rifaRef, {
-          ...rifa,
+          nombre: rifa.nombre,
           totalTicketsGenerados: rifa.maxTickets,
           fechaCreacion: new Date(),
-          estadoRifa: "activa" // Metadata útil para filtrado futuro
+          estadoRifa: "activa",
+          ticketsLibres: arrayTicketsLibres // <--- AQUÍ ESTÁ LA MAGIA 🪄
         });
 
-        // 2. Generación masiva de tickets en subcolección
-        const ticketsRef = collection(db, "rifas", rifa.id, "tickets");
-        const batchSize = 500; // Límite de Firestore por operación batch
-
-        for (let i = 0; i < rifa.maxTickets; i += batchSize) {
-          const batch = writeBatch(db);
-          const chunkEnd = Math.min(i + batchSize, rifa.maxTickets);
-
-          for (let j = i; j < chunkEnd; j++) {
-            // Genera números formateados (0000, 0001, etc.)
-            const numeroTicket = j.toString().padStart(4, '0');
-            const tRef = doc(ticketsRef, numeroTicket);
-            
-            batch.set(tRef, {
-              numero: numeroTicket,
-              estado: "disponible",
-              reservadoPor: null,
-              timestamp: null
-            });
-          }
-          
-          await batch.commit();
-          console.log(`📦 Lote creado: ${i} a ${chunkEnd} para ${rifa.id}`);
-        }
+        console.log(`📦 Inventario de ${rifa.maxTickets} tickets creado exitosamente en 1 sola operación para ${rifa.id}`);
       }
     }
-    console.log("Sincronización finalizada correctamente ✅");
+    console.log("Sincronización V2 finalizada correctamente ✅");
   } catch (error) {
     console.error("❌ Error en la sincronización de inventario:", error);
   }

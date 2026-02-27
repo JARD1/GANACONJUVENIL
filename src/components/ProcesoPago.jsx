@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { db } from '../firebase'; 
-import { collection, query, where, getDocs, doc, addDoc, runTransaction, serverTimestamp, writeBatch, orderBy, limit } from "firebase/firestore";
+import { collection, query, where, getDocs, doc, addDoc, runTransaction, serverTimestamp, updateDoc, arrayUnion } from "firebase/firestore";
 import CryptoJS from 'crypto-js';
 import emailjs from '@emailjs/browser';
 
@@ -54,7 +54,7 @@ export default function ProcesoPago({
 
   const mostrarAviso = (tipo, mensaje) => { setModalStatus({ visible: true, tipo, mensaje }); };
 
-  // --- PASO 1: ASIGNACIÓN SECUENCIAL OPTIMIZADA (MENOR A MAYOR) ---
+  // --- PASO 1: ASIGNACIÓN ALEATORIA (ARQUITECTURA V2 - POOL DE MEMORIA) ---
   const procesarPaso1 = async (e) => {
     e.preventDefault();
     if (cantidad < 2) return mostrarAviso('error', 'La compra mínima es de 2 boletos.');
@@ -66,51 +66,39 @@ export default function ProcesoPago({
 
     setCargando(true);
     try {
-      // 1. BÚSQUEDA SECUENCIAL INTELIGENTE
-      const ticketsRef = collection(db, "rifas", rifaId, "tickets");
-      const qDisponibles = query(
-        ticketsRef, 
-        where("estado", "==", "disponible"),
-        orderBy("numero", "asc"), 
-        limit(Number(cantidad))   
-      );
-      
-      const snapshot = await getDocs(qDisponibles);
-
-      if (snapshot.docs.length < cantidad) {
-        throw new Error(`Lo sentimos, solo quedan ${snapshot.docs.length} tickets disponibles.`);
-      }
-
-      // 2. Transacción Segura en Firebase
+      // 1. TRANSACCIÓN ATÓMICA: Leer el arreglo y extraer los números al azar
       const asignados = await runTransaction(db, async (transaction) => {
-        const comprobaciones = [];
-        for (const docSnap of snapshot.docs) {
-          const ref = doc(db, "rifas", rifaId, "tickets", docSnap.id);
-          const snap = await transaction.get(ref);
-          comprobaciones.push({ snap, ref, numero: docSnap.data().numero });
+        const rifaRef = doc(db, "rifas", rifaId);
+        const snap = await transaction.get(rifaRef);
+        
+        if (!snap.exists()) throw new Error("La rifa no existe en la base de datos.");
+        
+        const data = snap.data();
+        let libres = data.ticketsLibres || [];
+
+        if (libres.length < cantidad) {
+          throw new Error(`Lo sentimos, solo quedan ${libres.length} tickets disponibles.`);
         }
 
-        for (const item of comprobaciones) {
-          if (item.snap.data().estado !== "disponible") {
-            throw new Error("Colisión de red. Alguien tomó un número en este instante. Intenta de nuevo.");
-          }
-        }
+        // 🎲 Mezclar el array (Shuffling real en memoria)
+        const mezclados = [...libres].sort(() => 0.5 - Math.random());
+        // Extraer la cantidad que pidió el usuario
+        const seleccionados = mezclados.slice(0, Number(cantidad));
+        
+        // Filtrar los que sacamos para actualizar el nuevo arreglo
+        const nuevosLibres = libres.filter(t => !seleccionados.includes(t));
 
-        for (const item of comprobaciones) {
-          transaction.update(item.ref, { 
-            estado: "reservado",
-            reservadoPor: numLimpio
-          });
-        }
+        // 2. Ejecutar la actualización (1 sola escritura)
+        transaction.update(rifaRef, { ticketsLibres: nuevosLibres });
 
-        return comprobaciones.map(item => item.numero);
+        return seleccionados;
       });
 
       // 3. Generar PIN de 4 dígitos
       const pin = Math.floor(1000 + Math.random() * 9000).toString();
       setCodigoGenerado(pin);
       
-      // ENVÍO DE CORREO REAL CON EMAILJS Y VARIABLES DE ENTORNO
+      // 4. ENVÍO DE CORREO
       try {
         await emailjs.send(
           EMAILJS_SERVICE,
@@ -121,10 +109,12 @@ export default function ProcesoPago({
           },
           EMAILJS_PUBLIC_KEY
         );
-        console.log("Correo de PIN enviado con éxito");
       } catch (err) {
         console.error("Error enviando el correo:", err);
-        return mostrarAviso('error', 'Hubo un error al enviar el código a tu correo. Por favor, verifica que esté bien escrito.');
+        // Si falla el correo, devolvemos los tickets al Pool automáticamente
+        const rifaRef = doc(db, "rifas", rifaId);
+        await updateDoc(rifaRef, { ticketsLibres: arrayUnion(...asignados) });
+        return mostrarAviso('error', 'Fallo al enviar el código. Verifica tu correo. Tus números fueron liberados.');
       }
 
       setTicketsTemporales(asignados);
@@ -132,7 +122,7 @@ export default function ProcesoPago({
       setPaso(2); 
     } catch (error) {
       console.error("Error detallado:", error);
-      mostrarAviso('error', error.message || 'Error al asignar números.');
+      mostrarAviso('error', error.message || 'Error al asignar números. Intenta de nuevo.');
     } finally {
       setCargando(false);
     }
@@ -148,7 +138,7 @@ export default function ProcesoPago({
     }
   };
 
-  // --- PASO 3: ENVIAR PAGO ---
+  // --- PASO 3: ENVIAR PAGO (ARQUITECTURA V2) ---
   const ejecutarEnvioPago = async (e) => {
     e.preventDefault();
     if (!archivo || !metodo || !referencia) return mostrarAviso('error', 'Completa los datos de pago y sube el comprobante.');
@@ -168,7 +158,7 @@ export default function ProcesoPago({
       // Sello de seguridad para evitar hackeos
       const hash = CryptoJS.SHA256(`${nombre}-${referencia}-${whatsappFormateado}-${totalUSD}-${ticketsTemporales.join(',')}-${SECRET_KEY}`).toString();
 
-      // Guardar el reporte
+      // Guardar el reporte (ÚNICA ESCRITURA, ya los tickets salieron del Pool en el Paso 1)
       await addDoc(collection(db, "pagos"), {
         nombreCliente: nombre,
         whatsapp: whatsappFormateado,
@@ -188,14 +178,6 @@ export default function ProcesoPago({
         integrityHash: hash 
       });
 
-      // Pasar tickets de "reservado" a "pagado"
-      const batch = writeBatch(db);
-      ticketsTemporales.forEach(num => {
-        const tRef = doc(db, "rifas", rifaId, "tickets", num);
-        batch.update(tRef, { estado: "pagado" });
-      });
-      await batch.commit();
-
       setPaso(4); 
     } catch (error) {
       mostrarAviso('error', error.message || 'Error al enviar el reporte.');
@@ -204,17 +186,15 @@ export default function ProcesoPago({
     }
   };
 
-  // --- FUNCIÓN PARA CANCELAR Y LIBERAR TICKETS ---
+  // --- FUNCIÓN PARA CANCELAR Y LIBERAR TICKETS (EL SALVADOR: arrayUnion) ---
   const cancelarCompra = async () => {
     setCargando(true);
     try {
       if (ticketsTemporales.length > 0) {
-        const batch = writeBatch(db);
-        ticketsTemporales.forEach(num => {
-          const tRef = doc(db, "rifas", rifaId, "tickets", num);
-          batch.update(tRef, { estado: "disponible", reservadoPor: null });
+        const rifaRef = doc(db, "rifas", rifaId);
+        await updateDoc(rifaRef, {
+          ticketsLibres: arrayUnion(...ticketsTemporales)
         });
-        await batch.commit();
       }
       // Resetear todo al paso 1
       setPaso(1);
@@ -233,25 +213,21 @@ export default function ProcesoPago({
   // 🤖 AUTOMATIZACIÓN: LIBERACIÓN DE TICKETS POR ABANDONO O TIEMPO
   // =========================================================================
   React.useEffect(() => {
-    // 1. CRONÓMETRO: Si está en el paso 2 o 3, tiene 10 minutos para pagar
+    // 1. CRONÓMETRO: Si está en el paso 2 o 3, tiene 15 minutos para pagar
     let temporizador;
     if ((paso === 2 || paso === 3) && ticketsTemporales.length > 0) {
       temporizador = setTimeout(() => {
         cancelarCompra();
-        mostrarAviso('error', 'Tiempo agotado. Tus tickets han sido liberados por inactividad.');
+        mostrarAviso('error', 'Tiempo agotado. Tus tickets han sido devueltos a la tómbola.');
       }, 15 * 60 * 1000); // 15 minutos
     }
 
-    // 2. DETECTOR DE CIERRE DE PESTAÑA: Si intenta cerrar el navegador
-    const manejarCierrePestana = (e) => {
+    // 2. DETECTOR DE CIERRE DE PESTAÑA
+    const manejarCierrePestana = () => {
       if ((paso === 2 || paso === 3) && ticketsTemporales.length > 0) {
-        // Liberamos los tickets en Firebase antes de que la pestaña muera
-        const batch = writeBatch(db);
-        ticketsTemporales.forEach(num => {
-          const tRef = doc(db, "rifas", rifaId, "tickets", num);
-          batch.update(tRef, { estado: "disponible", reservadoPor: null });
-        });
-        batch.commit(); // Disparamos la orden a Firebase
+        // Disparamos la orden de retorno a Firebase de forma asíncrona ciega
+        const rifaRef = doc(db, "rifas", rifaId);
+        updateDoc(rifaRef, { ticketsLibres: arrayUnion(...ticketsTemporales) });
       }
     };
 
@@ -294,7 +270,6 @@ export default function ProcesoPago({
                 </button>
                 
                 <div className="flex flex-col items-center">
-                  {/* Input para modificar manualmente */}
                   <input 
                     type="number"
                     value={cantidad}
@@ -307,11 +282,10 @@ export default function ProcesoPago({
                       }
                     }}
                     onBlur={() => {
-                      // Al salir del campo, forzamos el mínimo de 2
                       if (cantidad < 2 || cantidad === "") setCantidad(2);
                     }}
                     className="w-20 bg-transparent text-center text-3xl font-black text-blue-500 italic outline-none hide-arrows"
-                    style={{ WebkitAppearance: 'none', MozAppearance: 'textfield' }} // Oculta las flechitas por defecto del input number
+                    style={{ WebkitAppearance: 'none', MozAppearance: 'textfield' }} 
                   />
                   <span className="text-[8px] text-slate-500 uppercase font-bold tracking-tighter">Boletos</span>
                 </div>
@@ -325,7 +299,7 @@ export default function ProcesoPago({
                 </button>
               </div>
 
-              {/* BOTONES DE SUMA RÁPIDA (Comportamiento Aditivo) */}
+              {/* BOTONES DE SUMA RÁPIDA */}
               <div className="grid grid-cols-4 gap-2 mt-4">
                 {[2, 5, 10, 20].map(num => (
                   <button 
@@ -390,7 +364,7 @@ export default function ProcesoPago({
             </div>
 
             <button type="submit" disabled={cargando} className="w-full mt-6 bg-blue-600 text-white font-black py-5 rounded-2xl shadow-xl shadow-blue-900/40 hover:bg-blue-500 active:scale-95 transition-all uppercase tracking-widest text-xs disabled:opacity-50">
-              {cargando ? 'Asignando Números...' : 'Generar Mis Números 🎟️'}
+              {cargando ? 'Sacando Números al Azar...' : 'Generar Mis Números 🎟️'}
             </button>
           </div>
         </form>
@@ -401,8 +375,8 @@ export default function ProcesoPago({
         <div className="bg-slate-900/80 backdrop-blur-md p-6 md:p-8 rounded-[2.5rem] shadow-2xl border border-blue-500/30 animate-in slide-in-from-right-8">
           <div className="text-center mb-6">
             <span className="inline-block bg-green-500/20 text-green-400 p-3 rounded-full text-2xl mb-3 border border-green-500/30">🎯</span>
-            <h2 className="text-2xl font-black text-white uppercase italic">¡Números Reservados!</h2>
-            <p className="text-slate-400 text-xs font-bold mt-2">Estos son tus boletos generados por el sistema:</p>
+            <h2 className="text-2xl font-black text-white uppercase italic">¡Tus Números de Suerte!</h2>
+            <p className="text-slate-400 text-xs font-bold mt-2">Sacados al azar para ti:</p>
           </div>
 
           <div className="flex flex-wrap justify-center gap-3 bg-slate-950 p-6 rounded-3xl border border-slate-800 shadow-inner mb-8">
@@ -426,7 +400,7 @@ export default function ProcesoPago({
               Verificar y Proceder al Pago ✅
             </button>
             <button type="button" onClick={cancelarCompra} className="w-full text-slate-500 hover:text-red-400 font-black py-3 uppercase tracking-widest text-[9px] transition-colors mt-2">
-              Cancelar y Liberar Números
+              Devolver mis números
             </button>
           </form>
         </div>
@@ -475,7 +449,7 @@ export default function ProcesoPago({
               {cargando ? 'Procesando Pago...' : 'Finalizar y Reportar Pago 🚀'}
             </button>
             <button type="button" onClick={cancelarCompra} disabled={cargando} className="w-full text-slate-500 hover:text-red-400 font-black py-3 uppercase tracking-widest text-[9px] transition-colors mt-2">
-              Cancelar Compra
+              Cancelar y Devolver Números
             </button>
           </div>
         </form>
