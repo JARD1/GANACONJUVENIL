@@ -1,7 +1,8 @@
-// 1. Importamos la base (App) y los servicios (Firestore y Storage)
+// 1. Importamos la base (App) y los servicios (Firestore, Storage y Auth)
 import { initializeApp } from "firebase/app";
 import { getFirestore } from "firebase/firestore"; // <-- Base de datos
-import { getStorage } from "firebase/storage";    // <-- Para guardar los captures
+import { getStorage } from "firebase/storage";     // <-- Para guardar los captures
+import { getAuth } from "firebase/auth";           // <-- Autenticación (NUEVO)
 
 // 2. Tu configuración (ya está correcta)
 const firebaseConfig = {
@@ -20,3 +21,4 @@ const app = initializeApp(firebaseConfig);
 // El "export" es vital para que puedas usarlos en tus otros componentes
 export const db = getFirestore(app);
 export const storage = getStorage(app);
+export const auth = getAuth(app); // <-- La Llave Maestra (NUEVO)

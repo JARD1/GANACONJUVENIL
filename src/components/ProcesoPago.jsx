@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { db } from '../firebase'; 
 import { collection, query, where, getDocs, doc, addDoc, runTransaction, serverTimestamp, writeBatch, orderBy, limit } from "firebase/firestore";
 import CryptoJS from 'crypto-js';
@@ -11,9 +12,10 @@ export default function ProcesoPago({
 }) {
   // PASOS DEL FLUJO: 1 (Datos), 2 (Verificación), 3 (Pago), 4 (Éxito)
   const [paso, setPaso] = useState(1);
+  const navigate = useNavigate(); 
   
   // DATOS DEL USUARIO
-  const [cantidad, setCantidad] = useState(2); // Inicia en 2 por tu regla de compra mínima
+  const [cantidad, setCantidad] = useState(2); 
   const [nombre, setNombre] = useState("");
   const [whatsapp, setWhatsapp] = useState(""); 
   const [correo, setCorreo] = useState("");
@@ -69,8 +71,8 @@ export default function ProcesoPago({
       const qDisponibles = query(
         ticketsRef, 
         where("estado", "==", "disponible"),
-        orderBy("numero", "asc"), // De menor a mayor siempre
-        limit(Number(cantidad))   // Solo pide los necesarios
+        orderBy("numero", "asc"), 
+        limit(Number(cantidad))   
       );
       
       const snapshot = await getDocs(qDisponibles);
@@ -127,7 +129,7 @@ export default function ProcesoPago({
 
       setTicketsTemporales(asignados);
       setWhatsappFormateado(numLimpio);
-      setPaso(2); // Ir al paso del PIN
+      setPaso(2); 
     } catch (error) {
       console.error("Error detallado:", error);
       mostrarAviso('error', error.message || 'Error al asignar números.');
@@ -226,6 +228,43 @@ export default function ProcesoPago({
       setCargando(false);
     }
   };
+
+  // =========================================================================
+  // 🤖 AUTOMATIZACIÓN: LIBERACIÓN DE TICKETS POR ABANDONO O TIEMPO
+  // =========================================================================
+  React.useEffect(() => {
+    // 1. CRONÓMETRO: Si está en el paso 2 o 3, tiene 10 minutos para pagar
+    let temporizador;
+    if ((paso === 2 || paso === 3) && ticketsTemporales.length > 0) {
+      temporizador = setTimeout(() => {
+        cancelarCompra();
+        mostrarAviso('error', 'Tiempo agotado. Tus tickets han sido liberados por inactividad.');
+      }, 15 * 60 * 1000); // 15 minutos
+    }
+
+    // 2. DETECTOR DE CIERRE DE PESTAÑA: Si intenta cerrar el navegador
+    const manejarCierrePestana = (e) => {
+      if ((paso === 2 || paso === 3) && ticketsTemporales.length > 0) {
+        // Liberamos los tickets en Firebase antes de que la pestaña muera
+        const batch = writeBatch(db);
+        ticketsTemporales.forEach(num => {
+          const tRef = doc(db, "rifas", rifaId, "tickets", num);
+          batch.update(tRef, { estado: "disponible", reservadoPor: null });
+        });
+        batch.commit(); // Disparamos la orden a Firebase
+      }
+    };
+
+    window.addEventListener('beforeunload', manejarCierrePestana);
+
+    // Limpieza cuando el componente cambia
+    return () => {
+      clearTimeout(temporizador);
+      window.removeEventListener('beforeunload', manejarCierrePestana);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [paso, ticketsTemporales, rifaId]);
+  // =========================================================================
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
@@ -514,7 +553,10 @@ export default function ProcesoPago({
             </div>
           </div>
 
-          <button onClick={() => window.location.reload()} className="mt-6 w-full text-blue-400 hover:text-blue-300 font-black py-3 uppercase tracking-widest text-[10px] underline transition-colors">
+          <button 
+            onClick={() => navigate('/')} 
+            className="mt-6 w-full text-blue-400 hover:text-blue-300 font-black py-3 uppercase tracking-widest text-[10px] underline transition-colors"
+          >
             Finalizar y volver al inicio
           </button>
         </div>

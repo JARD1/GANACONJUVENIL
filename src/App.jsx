@@ -5,8 +5,28 @@ import DetallesRifa from './components/DetallesRifa';
 import DashboardAdmin from './components/DashboardAdmin'; 
 import LoginAdmin from './components/LoginAdmin';
 import ConsultaTickets from './components/ConsultaTickets';
+import RuletaGanador from './components/RuletaGanador'; // <-- AQUÍ ESTÁ LA NUEVA IMPORTACIÓN
 
 import { sincronizarInventario } from './services/syncRifas';
+
+// =========================================================================
+// 🚧 EL INTERRUPTOR MÁGICO DE MANTENIMIENTO
+// Si en tu archivo .env o en Vercel pones VITE_MODO_MANTENIMIENTO=true, la página se tumba para el público.
+// =========================================================================
+const MODO_MANTENIMIENTO = import.meta.env.VITE_MODO_MANTENIMIENTO === 'true';
+
+const PantallaMantenimiento = () => (
+  <div className="min-h-[60vh] flex flex-col items-center justify-center text-center px-4 animate-in fade-in duration-700">
+    <div className="text-6xl mb-6 animate-bounce">🚧</div>
+    <h1 className="text-3xl md:text-5xl font-black text-white uppercase italic tracking-tighter mb-4">
+      Mantenimiento <span className="text-blue-500">Programado</span>
+    </h1>
+    <p className="text-slate-400 font-bold uppercase tracking-widest text-xs md:text-sm max-w-md mx-auto leading-relaxed">
+      Estamos realizando una limpieza y optimización en nuestra base de datos para garantizar la total seguridad del sorteo. Volvemos en breves minutos.
+    </p>
+  </div>
+);
+// =========================================================================
 
 function App() {
   const [isLogged, setIsLogged] = useState(false);
@@ -16,6 +36,10 @@ function App() {
   }, []);
 
   const fondoRifa = "/img/fondo de rifa.png"; 
+  
+  // 🟢 NÚMERO DE SOPORTE WHATSAPP (Cámbialo por el tuyo)
+  const numeroSoporte = "584120000000"; 
+  const mensajeSoporte = "Hola, necesito ayuda con la plataforma de Gana con Juvenil.";
 
   return (
     <Router>
@@ -47,17 +71,14 @@ function App() {
           
           <div className="flex items-center relative h-full">
             <Link to="/" className="flex items-center group relative pl-2 h-full">
-              
-              {/* LOGO NUEVO: CABEZA CON CORONA (Brillo Fuego/Dorado) */}
               <img 
-                src="/img/LOGO.png" // Asegúrate de haber reemplazado el archivo físico
+                src="/img/LOGO.png" 
                 alt="Logo Gana con Juvenil" 
                 className="absolute left-[-10px] md:left-[-5px] w-16 h-16 md:w-24 md:h-24 object-contain 
                   filter drop-shadow-[0_0_12px_rgba(249,115,22,0.8)] md:drop-shadow-[0_0_20px_rgba(249,115,22,0.9)] 
                   -rotate-6 md:-rotate-12 group-hover:rotate-0 group-hover:scale-105 transition-transform duration-300 z-[60] 
                   max-w-none top-[-10px] md:top-[-18px]"
               />
-              
               <span className="text-base md:text-2xl font-black italic tracking-tighter text-white uppercase ml-12 md:ml-20 leading-none whitespace-nowrap relative z-50">
                 GANA CON <span className="text-blue-500">JUVENIL</span>
               </span>
@@ -75,39 +96,46 @@ function App() {
         </nav>
 
         {/* --- CONTENIDO PRINCIPAL --- */}
-        <main className="relative z-10 w-full max-w-7xl mx-auto px-4 py-6 md:py-10 flex-grow">
+        <main className="relative z-10 w-full max-w-7xl mx-auto px-4 py-6 md:py-10 flex-grow flex flex-col">
           <Routes>
-            <Route path="/" element={<Home />} />
-            <Route path="/participar/:id" element={<DetallesRifa />} />
-            <Route path="/mis-tickets" element={<ConsultaTickets />} />
-            <Route 
-              path="/admin" 
-              element={
-                isLogged ? (
-                  <DashboardAdmin />
-                ) : (
-                  <LoginAdmin onLogin={setIsLogged} />
-                )
-              } 
-            />
+            <Route path="/" element={MODO_MANTENIMIENTO ? <PantallaMantenimiento /> : <Home />} />
+            <Route path="/participar/:id" element={MODO_MANTENIMIENTO ? <PantallaMantenimiento /> : <DetallesRifa />} />
+            <Route path="/mis-tickets" element={MODO_MANTENIMIENTO ? <PantallaMantenimiento /> : <ConsultaTickets />} />
+            
+            {/* --- LA RULETA DEL LIVE --- */}
+            <Route path="/ruleta" element={<RuletaGanador />} />
+
+            <Route path="/admin" element={isLogged ? <DashboardAdmin /> : <LoginAdmin onLogin={setIsLogged} />} />
           </Routes>
         </main>
 
-        {/* --- FOOTER COMPACTO --- */}
-        <footer className="py-6 md:py-8 text-center relative z-10 mt-auto border-t border-slate-900 bg-slate-950/80 backdrop-blur-md">
-          <div className="h-[1px] w-16 md:w-24 bg-blue-600/30 mx-auto mb-4 md:mb-5"></div>
-          
-          <Link to="/mis-tickets" className="text-slate-500 font-black text-[8px] md:text-[10px] uppercase tracking-[0.2em] md:tracking-[0.3em] hover:text-blue-400 transition-colors px-4 block">
-            - Verificar Mis Boletos -
-          </Link>
-          
-          <div className="mt-4 md:mt-5 space-y-1.5">
-            <p className="text-[7px] md:text-[8px] text-slate-600 font-bold uppercase tracking-widest">
-              © 2026 Gana con Juvenil • Sistema de Sorteos
-            </p>
-            <p className="text-[6px] md:text-[7px] text-slate-700 font-bold uppercase tracking-widest">
-              Tecnología Segura
-            </p>
+        {/* --- FOOTER SÚPER COMPACTO Y FUNCIONAL --- */}
+        <footer className="py-4 text-center relative z-10 mt-auto border-t border-slate-900 bg-slate-950/90 backdrop-blur-md">
+          <div className="flex flex-col items-center justify-center gap-3">
+            
+            <div className="flex gap-4 md:gap-8 items-center justify-center">
+              <Link to="/mis-tickets" className="text-slate-500 font-black text-[9px] uppercase tracking-widest hover:text-blue-400 transition-colors">
+                🎟️ Verificar Boletos
+              </Link>
+              
+              {/* BOTÓN WHATSAPP DE SOPORTE */}
+              <a 
+                href={`https://wa.me/${numeroSoporte}?text=${encodeURIComponent(mensajeSoporte)}`} 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="text-green-500 font-black text-[9px] uppercase tracking-widest hover:text-green-400 transition-colors flex items-center gap-1"
+              >
+                💬 Contactar Soporte
+              </a>
+            </div>
+
+            <div className="h-px w-24 bg-slate-800"></div>
+
+            <div className="flex flex-col items-center">
+              <p className="text-[7px] text-slate-600 font-bold uppercase tracking-widest">
+                © 2026 Gana con Juvenil • Sistema de Sorteos
+              </p>
+            </div>
           </div>
         </footer>
 

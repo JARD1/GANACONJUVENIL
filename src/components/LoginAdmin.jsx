@@ -1,22 +1,36 @@
 import React, { useState } from 'react';
+import { auth } from '../firebase'; // <-- Importamos la conexión a Firebase
+import { signInWithEmailAndPassword } from 'firebase/auth'; // <-- Importamos la función de login oficial
 
 export default function LoginAdmin({ onLogin }) {
   const [clave, setClave] = useState("");
   const [error, setError] = useState(false);
+  const [cargando, setCargando] = useState(false);
 
-  // Leer la contraseña desde el archivo .env
-  const ADMIN_PASSWORD = import.meta.env.VITE_ADMIN_PASSWORD;
-
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
+    if (!clave) return;
+
+    setCargando(true);
+    setError(false);
     
-    // Comparamos lo que escribe el usuario con la variable de entorno
-    if (clave === ADMIN_PASSWORD) { 
+    try {
+      // 1. Aquí ponemos tu correo oficial de administrador (Agente Secreto)
+      const correoAdmin = "jadr.whisky@gmail.com";
+      
+      // 2. Tocamos la puerta de Firebase entregando correo y clave
+      await signInWithEmailAndPassword(auth, correoAdmin, clave);
+      
+      // 3. Si Firebase no da error, significa que te dio la Llave Maestra. ¡Entramos!
       onLogin(true);
-    } else {
+      
+    } catch (err) {
+      console.error("Acceso denegado:", err.message);
       setError(true);
       setClave(""); // Limpiamos el input si se equivoca
       setTimeout(() => setError(false), 2000);
+    } finally {
+      setCargando(false);
     }
   };
 
@@ -56,8 +70,8 @@ export default function LoginAdmin({ onLogin }) {
                 type="password"
                 value={clave}
                 onChange={(e) => setClave(e.target.value)}
-                placeholder="••••"
-                // NOTA: Eliminamos el maxLength={4} temporalmente por si tu contraseña nueva ("gana2026.") es más larga
+                placeholder="••••••••"
+                disabled={cargando}
                 className={`w-full text-center text-4xl tracking-[0.2em] p-5 bg-slate-950/50 border-2 rounded-2xl outline-none font-black text-white transition-all shadow-inner ${
                   error 
                   ? 'border-red-500 focus:border-red-500 text-red-500 placeholder:text-red-900/50 animate-pulse' 
@@ -75,9 +89,10 @@ export default function LoginAdmin({ onLogin }) {
 
             <button
               type="submit"
-              className="w-full bg-blue-600 text-white p-5 rounded-2xl font-black uppercase text-[11px] tracking-[0.2em] hover:bg-blue-500 active:scale-95 transition-all shadow-lg shadow-blue-900/40"
+              disabled={cargando}
+              className="w-full bg-blue-600 text-white p-5 rounded-2xl font-black uppercase text-[11px] tracking-[0.2em] hover:bg-blue-500 active:scale-95 transition-all shadow-lg shadow-blue-900/40 disabled:opacity-50"
             >
-              Entrar al Panel ⚡
+              {cargando ? 'Verificando...' : 'Entrar al Panel ⚡'}
             </button>
           </form>
 

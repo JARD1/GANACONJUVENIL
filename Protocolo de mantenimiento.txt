@@ -1,0 +1,10 @@
+📖 El "Protocolo Oficial de Mantenimiento" (Guárdalo)
+A partir de hoy, cuando vayas a hacer una limpieza profunda, este será tu procedimiento paso a paso:
+
+Paso 1 (Cerrar la puerta): Entras a Vercel, pones VITE_MODO_MANTENIMIENTO=true y guardas. La página muestra el aviso de mantenimiento. Nadie nuevo puede entrar a comprar.
+
+Paso 2 (La Pausa del Café ☕): Esperas exactamente 30 minutos. Esto garantiza que cualquier persona que se haya quedado adentro de la tienda termine de pagar tranquilamente o su tiempo expire legalmente.
+
+Paso 3 (Aspiradora a fondo): Entras a tuweb.com/admin, vas a tu Panel de Comando y le das al botón de "🧹 Limpiar". En este punto, es matemáticamente imposible que le arruines la compra a alguien activo. Todo lo que el sistema limpie será basura real (tickets fantasma de gente que cerró el navegador de golpe).
+
+Paso 4 (Reabrir puertas): Vuelves a Vercel, pones el mantenimiento en false, y la página vuelve a brillar impecable para el público.
