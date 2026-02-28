@@ -1,11 +1,15 @@
 import React, { useState, useEffect } from 'react';
-import { db } from '../firebase'; 
+import { useNavigate } from 'react-router-dom';
+import { db, auth } from '../firebase'; // Añadido "auth"
+import { signOut } from "firebase/auth"; // Importamos la función de cierre de sesión
 import { collection, query, where, getDocs, doc, writeBatch, orderBy, limit, getDoc, serverTimestamp, updateDoc, arrayUnion, arrayRemove } from "firebase/firestore";
 import { listaRifas } from '../data/rifas.js';
 import * as XLSX from 'xlsx';
 import emailjs from '@emailjs/browser';
 
 export default function DashboardAdmin() {
+  const navigate = useNavigate(); // Hook para redireccionar al salir
+  
   const [rifaSeleccionada, setRifaSeleccionada] = useState(listaRifas[0]?.id || "");
   const [pagos, setPagos] = useState([]);
   const [cargando, setCargando] = useState(false);
@@ -14,7 +18,6 @@ export default function DashboardAdmin() {
   const [statsTickets, setStatsTickets] = useState({ disponibles: 0, confirmados: 0, pendientes: 0 });
   const [busqueda, setBusqueda] = useState("");
 
-  // ESTADOS MODO DIOS (HERRAMIENTAS AVANZADAS)
   const [modalAuditoria, setModalAuditoria] = useState(false);
   const [ticketQuery, setTicketQuery] = useState("");
   const [ticketData, setTicketData] = useState(null);
@@ -34,14 +37,23 @@ export default function DashboardAdmin() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rifaSeleccionada, filtroEstado]);
 
-  // --- ARQUITECTURA V2: ESTADÍSTICAS POR AGREGACIÓN ---
+  // --- FUNCIÓN PARA CERRAR SESIÓN ---
+  const cerrarSesion = async () => {
+    if (!window.confirm("¿Seguro que deseas cerrar sesión y salir del Panel Admin?")) return;
+    try {
+      await signOut(auth);
+      navigate('/'); // Redirige al inicio para no dejar la vista admin abierta
+    } catch (error) {
+      console.error("Error al cerrar sesión:", error);
+      alert("Hubo un error al intentar cerrar sesión.");
+    }
+  };
+
   const cargarEstadisticas = async () => {
     try {
-      // 1. Obtener los libres directo de la tómbola
       const rifaSnap = await getDoc(doc(db, "rifas", rifaSeleccionada));
       const libres = rifaSnap.data()?.ticketsLibres?.length || 0;
 
-      // 2. Contar los ocupados revisando los pagos (Solo confirmados y pendientes)
       const qPagos = query(collection(db, "pagos"), where("rifaId", "==", rifaSeleccionada));
       const pagosSnap = await getDocs(qPagos);
       
@@ -79,7 +91,6 @@ export default function DashboardAdmin() {
     }
   };
 
-  // --- ARQUITECTURA V2: CONCILIACIÓN DE FANTASMAS ---
   const limpiarTicketsFantasmas = async () => {
     if (!window.confirm("⚠️ El sistema cruzará la tómbola con las ventas para hallar tickets perdidos. ¿Proceder?")) return;
     setCargando(true);
@@ -89,10 +100,8 @@ export default function DashboardAdmin() {
       const ticketsLibresActuales = dataRifa.ticketsLibres || [];
       const totalTickets = dataRifa.totalTicketsGenerados;
 
-      // Generar el mapa completo de tickets teóricos
       const arrayTodos = Array.from({ length: totalTickets }, (_, i) => i.toString().padStart(4, '0'));
 
-      // Buscar los tickets legalmente ocupados en los pagos
       const qPagos = query(collection(db, "pagos"), where("rifaId", "==", rifaSeleccionada));
       const pagosSnap = await getDocs(qPagos);
       let ticketsOcupadosValidos = [];
@@ -103,11 +112,9 @@ export default function DashboardAdmin() {
         }
       });
 
-      // Detectar los fantasmas (Aquellos que no están ni libres ni en un pago válido)
       const faltantes = arrayTodos.filter(t => !ticketsLibresActuales.includes(t) && !ticketsOcupadosValidos.includes(t));
 
       if (faltantes.length > 0) {
-        // Devolver los fantasmas a la tómbola
         await updateDoc(doc(db, "rifas", rifaSeleccionada), { 
           ticketsLibres: arrayUnion(...faltantes) 
         });
@@ -123,13 +130,11 @@ export default function DashboardAdmin() {
     }
   };
 
-  // --- REVERTIR A PENDIENTE (V2) ---
   const revertirPago = async (pago) => {
     if (!window.confirm(`¿Devolver el pago de ${pago.nombreCliente} a PENDIENTE?`)) return;
     setCargando(true);
     try {
       if (pago.estado === "rechazado") {
-        // Si estaba rechazado, los tickets están libres. Hay que quitarlos de la tómbola de nuevo.
         const rifaSnap = await getDoc(doc(db, "rifas", pago.rifaId));
         const libres = rifaSnap.data().ticketsLibres || [];
         for (const num of pago.tickets) {
@@ -150,7 +155,6 @@ export default function DashboardAdmin() {
     }
   };
 
-  // --- APROBAR PAGO (V2) ---
   const aprobarPago = async (pago) => {
     if (!window.confirm(`¿Aprobar los tickets de ${pago.nombreCliente}?`)) return;
     setCargando(true);
@@ -167,21 +171,17 @@ export default function DashboardAdmin() {
     } catch (error) { alert("Error al aprobar"); } finally { setCargando(false); }
   };
 
-  // --- RECHAZAR PAGO (V2) ---
   const rechazarPago = async (pago) => {
     if (!window.confirm(`¿RECHAZAR el pago de ${pago.nombreCliente}?`)) return;
     setCargando(true);
     try {
-      // 1. Actualizar estado del pago
       await updateDoc(doc(db, "pagos", pago.id), { estado: "rechazado" });
-      // 2. Devolver los tickets a la tómbola
       await updateDoc(doc(db, "rifas", pago.rifaId), { ticketsLibres: arrayUnion(...pago.tickets) });
       
       cargarPagos(); cargarEstadisticas();
     } catch (error) { alert("Error al rechazar"); } finally { setCargando(false); }
   };
 
-  // --- AUDITOR DE TICKETS (V2) ---
   const auditarTicket = async (e) => {
     e.preventDefault();
     if (!ticketQuery) return;
@@ -189,14 +189,12 @@ export default function DashboardAdmin() {
     setCargando(true);
     
     try {
-      // 1. Chequear si está en la tómbola
       const rifaSnap = await getDoc(doc(db, "rifas", rifaSeleccionada));
       const libres = rifaSnap.data()?.ticketsLibres || [];
       
       if (libres.includes(numLimpio)) {
         setTicketData({ id: numLimpio, estado: "disponible", reservadoPor: "Nadie" });
       } else {
-        // 2. Si no está en la tómbola, buscar en los pagos
         const q = query(collection(db, "pagos"), where("rifaId", "==", rifaSeleccionada), where("tickets", "array-contains", numLimpio));
         const pSnap = await getDocs(q);
         
@@ -209,7 +207,6 @@ export default function DashboardAdmin() {
             nombre: pagoActivo.data().nombreCliente
           });
         } else {
-          // 3. Es un fantasma
           setTicketData({ id: numLimpio, estado: "Fantasma (Atascado)", reservadoPor: "Error de red", fantasma: true });
         }
       }
@@ -230,7 +227,6 @@ export default function DashboardAdmin() {
     } catch (error) { alert("Error al liberar"); } finally { setCargando(false); }
   };
 
-  // --- VENTA MANUAL (V2) ---
   const procesarVentaManual = async (e) => {
     e.preventDefault();
     setCargando(true);
@@ -241,7 +237,6 @@ export default function DashboardAdmin() {
       const numerosArreglo = formVenta.tickets.split(",").map(n => n.trim().padStart(4, '0')).filter(n => n !== "0000" && n !== "");
       if (numerosArreglo.length === 0) throw new Error("Debe ingresar al menos un ticket válido.");
 
-      // Verificar disponibilidad en la tómbola
       const rifaSnap = await getDoc(doc(db, "rifas", rifaSeleccionada));
       const libres = rifaSnap.data()?.ticketsLibres || [];
       
@@ -249,10 +244,8 @@ export default function DashboardAdmin() {
         if (!libres.includes(num)) throw new Error(`El ticket ${num} ya fue vendido o no está disponible.`);
       }
 
-      // 1. Extraer de la tómbola
       await updateDoc(doc(db, "rifas", rifaSeleccionada), { ticketsLibres: arrayRemove(...numerosArreglo) });
 
-      // 2. Crear el pago
       const montoAbsoluto = Math.abs(Number(formVenta.monto)) || 0;
       await addDoc(collection(db, "pagos"), {
         nombreCliente: formVenta.nombre + " (Manual)",
@@ -290,23 +283,59 @@ export default function DashboardAdmin() {
       const snapshot = await getDocs(q);
       if (snapshot.empty) { alert("No hay pagos confirmados para exportar."); setCargando(false); return; }
       const nombreRifa = listaRifas.find(r => r.id === rifaSeleccionada)?.nombre || "Rifa";
+      
       let totalRecaudadoUSD = 0, totalRecaudadoBS = 0;
-      const datosExcel = [ ["🏆 GANA CON JUVENIL - REPORTE OFICIAL 🏆"], [""], ["Sorteo:", nombreRifa, "", "", "Fecha Reporte:", new Date().toLocaleDateString('es-VE')], [""], ["TICKET", "CLIENTE", "WHATSAPP", "CORREO", "DIRECCIÓN (ESTADO/CIUDAD)", "MÉTODO", "REFERENCIA", "MONTO ($)", "MONTO (Bs)", "FECHA COMPRA"] ];
+      
+      const datosExcel = [ 
+        ["🏆 GANA CON JUVENIL - REPORTE OFICIAL 🏆"], 
+        [""], 
+        ["Sorteo:", nombreRifa, "", "", "Fecha Reporte:", new Date().toLocaleDateString('es-VE')], 
+        [""], 
+        ["TICKET", "CLIENTE", "WHATSAPP", "CORREO", "DIRECCIÓN (ESTADO/CIUDAD)", "MÉTODO", "REFERENCIA", "TASA BCV", "MONTO ($)", "MONTO (Bs)", "FECHA COMPRA"] 
+      ];
+      
       const filasDatos = [];
       snapshot.docs.forEach(docSnap => {
         const data = docSnap.data();
-        const pUSD = data.montoUsd / data.cantidadTickets, pBS = (data.montoBs || 0) / data.cantidadTickets;
+        const pUSD = data.montoUsd / data.cantidadTickets;
+        const pBS = (data.montoBs || 0) / data.cantidadTickets;
+        const esPagoMovil = data.metodoPago === 'pagomovil';
+
         data.tickets.forEach(t => {
-          totalRecaudadoUSD += pUSD; totalRecaudadoBS += pBS;
-          filasDatos.push([ t, data.nombreCliente?.toUpperCase() || "N/A", data.whatsapp || "N/A", data.correo?.toLowerCase() || "N/A", data.direccion?.toUpperCase() || "N/A", data.metodoPago?.toUpperCase() || "N/A", data.referencia || "N/A", `$${pUSD.toFixed(2)}`, `Bs. ${pBS.toFixed(2)}`, data.fecha ? new Date(data.fecha.toDate()).toLocaleString('es-VE') : "N/A" ]);
+          totalRecaudadoUSD += pUSD; 
+          if (esPagoMovil) totalRecaudadoBS += pBS;
+
+          filasDatos.push([ 
+            t, 
+            data.nombreCliente?.toUpperCase() || "N/A", 
+            data.whatsapp || "N/A", 
+            data.correo?.toLowerCase() || "N/A", 
+            data.direccion?.toUpperCase() || "N/A", 
+            data.metodoPago?.toUpperCase() || "N/A", 
+            data.referencia || "N/A", 
+            esPagoMovil ? `Bs. ${data.tasaReferencia || "N/A"}` : "N/A", 
+            `$${pUSD.toFixed(2)}`, 
+            esPagoMovil && pBS > 0 ? `Bs. ${pBS.toFixed(2)}` : "N/A", 
+            data.fecha ? new Date(data.fecha.toDate()).toLocaleString('es-VE') : "N/A" 
+          ]);
         });
       });
+
       filasDatos.sort((a, b) => a[0].localeCompare(b[0]));
-      datosExcel.push(...filasDatos); datosExcel.push(["", "", "", "", "", "", "", "", "", ""]); datosExcel.push(["", "", "", "", "", "", "TOTAL RECAUDADO:", `$${totalRecaudadoUSD.toFixed(2)}`, `Bs. ${totalRecaudadoBS.toFixed(2)}`, ""]); 
+      datosExcel.push(...filasDatos); 
+      datosExcel.push(["", "", "", "", "", "", "", "", "", "", ""]); 
+      datosExcel.push(["", "", "", "", "", "", "", "TOTAL RECAUDADO:", `$${totalRecaudadoUSD.toFixed(2)}`, `Bs. ${totalRecaudadoBS.toFixed(2)}`, ""]); 
+      
       const worksheet = XLSX.utils.aoa_to_sheet(datosExcel);
-      worksheet['!cols'] = [ { wch: 10 }, { wch: 35 }, { wch: 18 }, { wch: 30 }, { wch: 40 }, { wch: 15 }, { wch: 15 }, { wch: 12 }, { wch: 15 }, { wch: 22 } ];
-      const workbook = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(workbook, worksheet, "Auditoría"); XLSX.writeFile(workbook, `Reporte_GanaConJuvenil_${new Date().toISOString().split('T')[0]}.xlsx`);
-    } catch (e) { alert("Error Excel"); } finally { setCargando(false); }
+      worksheet['!cols'] = [ { wch: 10 }, { wch: 35 }, { wch: 18 }, { wch: 30 }, { wch: 40 }, { wch: 15 }, { wch: 15 }, { wch: 15 }, { wch: 12 }, { wch: 15 }, { wch: 22 } ];
+      const workbook = XLSX.utils.book_new(); 
+      XLSX.utils.book_append_sheet(workbook, worksheet, "Auditoría"); 
+      XLSX.writeFile(workbook, `Reporte_GanaConJuvenil_${new Date().toISOString().split('T')[0]}.xlsx`);
+    } catch (e) { 
+      alert("Error Excel"); 
+    } finally { 
+      setCargando(false); 
+    }
   };
 
   const pagosFiltrados = pagos.filter(pago => {
@@ -346,6 +375,11 @@ export default function DashboardAdmin() {
 
           <button onClick={exportarExcel} className="flex-1 sm:flex-none bg-green-600 hover:bg-green-500 text-white px-4 py-3 rounded-xl font-black uppercase text-[10px] tracking-widest transition-all">
             📊 Excel
+          </button>
+
+          {/* BOTÓN SALIR / CERRAR SESIÓN */}
+          <button onClick={cerrarSesion} className="flex-1 sm:flex-none bg-red-600/20 hover:bg-red-600 text-red-500 hover:text-white border border-red-500/30 px-4 py-3 rounded-xl font-black uppercase text-[10px] tracking-widest transition-all shadow-lg shadow-red-900/20 active:scale-95">
+            🚪 Salir
           </button>
         </div>
       </div>
@@ -402,9 +436,21 @@ export default function DashboardAdmin() {
                     <h3 className="font-black text-white uppercase text-lg">{pago.nombreCliente}</h3>
                     <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-1">📅 {pago.fecha ? new Date(pago.fecha.toDate()).toLocaleString() : "N/A"}</p>
                   </div>
+                  
                   <div className="text-right">
                     <span className="block font-black text-green-500 text-2xl">${pago.montoUsd?.toFixed(2)}</span>
+                    {pago.metodoPago === 'pagomovil' && pago.montoBs > 0 && (
+                      <div className="mt-1 text-right">
+                        <span className="block text-[11px] text-slate-300 font-black uppercase tracking-widest">
+                          Bs. {pago.montoBs?.toLocaleString('es-VE', { minimumFractionDigits: 2 })}
+                        </span>
+                        <span className="block text-[9px] text-slate-500 font-bold uppercase tracking-widest mt-0.5">
+                          Tasa BCV: {pago.tasaReferencia}
+                        </span>
+                      </div>
+                    )}
                   </div>
+
                 </div>
                 <div className="grid grid-cols-2 gap-3 text-[10px] font-bold uppercase tracking-widest">
                   <div className="bg-slate-900 p-2.5 rounded-lg border border-slate-800/50"><span className="text-blue-400">{pago.metodoPago}</span> • REF: {pago.referencia}</div>

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../firebase'; 
-import { collection, query, where, getDocs } from "firebase/firestore"; // Cambio: Usamos getDocs en lugar de onSnapshot
+import { collection, query, where, getDocs } from "firebase/firestore";
 
 export default function Podio({ rifaId }) {
   const [topUsuarios, setTopUsuarios] = useState([]);
@@ -27,8 +27,14 @@ export default function Podio({ rifaId }) {
           const tlf = data.whatsapp;
           
           if (!conteoBoletos[tlf]) {
-            const primerNombre = data.nombreCliente.split(' ')[0]; 
-            conteoBoletos[tlf] = { nombre: primerNombre, tickets: 0 };
+            // 👇 NUEVA LÓGICA: Extraer Nombre + Apellido 👇
+            // Si el cliente puso "Jorge Diaz Perez", esto agarra "Jorge Diaz"
+            const partesNombre = data.nombreCliente ? data.nombreCliente.trim().split(' ') : ['Usuario'];
+            const nombreMostrar = partesNombre.length > 1 
+              ? `${partesNombre[0]} ${partesNombre[1]}` 
+              : partesNombre[0];
+            
+            conteoBoletos[tlf] = { nombre: nombreMostrar, tickets: 0 };
           }
           conteoBoletos[tlf].tickets += Number(data.cantidadTickets || 0);
         });

@@ -43,10 +43,11 @@ export default function ProcesoPago({
   const EMAILJS_TEMPLATE_PIN = import.meta.env.VITE_EMAILJS_TEMPLATE_PIN;
   const EMAILJS_PUBLIC_KEY = import.meta.env.VITE_EMAILJS_PUBLIC_KEY;
 
+  // 👇 ACTUALIZACIÓN DE CUENTAS BANCARIAS REALES
   const datosCuentas = {
-    pagomovil: { banco: "Banesco", tlf: "04241234567", ci: "20.123.456" },
-    zelle: { correo: "pagos@tuweb.com", titular: "Nombre de Empresa" },
-    binance: { id: "987654321", email: "user@binance.com" }
+    pagomovil: { banco: "Banesco", tlf: "04249498385", ci: "33.026.553" },
+    zelle: { correo: "BESTCOOL3939@GMAIL.COM", titular: "Bestcool LLC (Bank Of America)" },
+    binance: { id: "1216476969" }
   };
 
   const totalUSD = (Number(cantidad) || 0) * precioTicket;
