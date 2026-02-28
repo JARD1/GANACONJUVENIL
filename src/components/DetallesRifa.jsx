@@ -61,47 +61,43 @@ export default function DetallesRifa() {
               <div className="w-12 h-1 bg-blue-600 mx-auto rounded-full shadow-[0_0_15px_rgba(37,99,235,0.6)]"></div>
             </div>
             
-            {/* CONTENEDOR CON SCROLL PARA LOS TÉRMINOS */}
+            {/* CONTENEDOR CON SCROLL PARA LOS TÉRMINOS CONSOLIDADOS */}
             <div className="text-left text-slate-300 text-[11px] md:text-xs space-y-4 overflow-y-auto pr-3 py-2 scrollbar-thin scrollbar-thumb-blue-600 scrollbar-track-slate-800/50 flex-grow">
               <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 shadow-inner space-y-3">
-                <p><strong>1.-</strong> Los números disponibles para la compra en cada uno de nuestros sorteos se especificarán en la página de detalles correspondiente a cada sorteo.</p>
+                
+                {/* 👇 TÉRMINO 1 CORREGIDO AL IDIOMA DEL CLIENTE 👇 */}
+                <p><strong>1.-</strong> Los números de los boletos son asignados de forma automática y aleatoria por el sistema al momento de realizar su solicitud, garantizando total transparencia e igualdad de oportunidades para todos los participantes.</p>
                 <div className="h-[1px] w-full bg-slate-800/50"></div>
-                <p><strong>2.-</strong> Solo podrán participar en nuestros sorteos personas naturales mayores de 18 años.</p>
-                <div className="h-[1px] w-full bg-slate-800/50"></div>
-                <p><strong>3.-</strong> Los premios deberán ser retirados en persona en la ubicación designada para cada sorteo. Si está afuera del estado se realizarán entregas personales en la dirección indicada por el ganador.</p>
-                <div className="h-[1px] w-full bg-slate-800/50"></div>
-                <p><strong>4.-</strong> De no venderse el 80% de la boletería la fecha del sorteo se reprogramará con previo aviso.</p>
-                <div className="h-[1px] w-full bg-slate-800/50"></div>
-                <p><strong>5.-</strong> Para reclamar tu premio tienes un lapso de 72 horas.</p>
-                <div className="h-[1px] w-full bg-slate-800/50"></div>
-                <p><strong>6.-</strong> Los ganadores aceptan aparecer en el contenido audiovisual del sorteo mostrando su presencia en las redes y entrega de los premios. Esto es <strong>OBLIGATORIO</strong>.</p>
-                <div className="h-[1px] w-full bg-slate-800/50"></div>
-                <p><strong>7.-</strong> La confirmación de su ticket será validada en nuestro portal web y notificada a su WhatsApp en un lapso no mayor a 12 horas después de confirmar el pago.</p>
+                {/* 👆 FIN TÉRMINO 1 👆 */}
+
+                <p className="text-red-400"><strong>2.- SE PROHÍBE TERMINANTEMENTE LA PARTICIPACIÓN DE MENORES DE EDAD.</strong> Solo podrán participar personas naturales mayores de 18 años. Asimismo, los adultos no podrán utilizar identidades de menores para registrarse en el sistema.</p>
                 <div className="h-[1px] w-full bg-slate-800/50"></div>
                 
-                {/* 👇 NUEVOS TÉRMINOS EXTRAÍDOS 👇 */}
-                <p><strong>8.-</strong> Los premios se pagan en la moneda oficial del país. No obstante, si el jugador adquirió su ticket ganador en otra divisa, se realizará la conversión de acuerdo con la tasa oficial del día.</p>
+                <p><strong>3.-</strong> Pueden participar personas desde cualquier ubicación, siempre que estén dispuestas a retirar su premio dentro del territorio venezolano o, en su defecto, autorizar a un familiar para realizar el retiro en persona.</p>
                 <div className="h-[1px] w-full bg-slate-800/50"></div>
                 
-                <p><strong>9.-</strong> Cada ganador tiene un lapso de 72 horas para atender a nuestro llamado. De no obtener respuesta, se procederá a elegir a otro ganador entre los mismos tickets vendidos.</p>
+                <p><strong>4.-</strong> De no venderse el 80% de la boletería, la fecha del sorteo se reprogramará con previo aviso.</p>
                 <div className="h-[1px] w-full bg-slate-800/50"></div>
                 
-                <p><strong>10.-</strong> Pueden participar personas desde cualquier ubicación, siempre que estén dispuestas a retirar su premio dentro del territorio venezolano o, en su defecto, autorizar a un familiar para realizar el retiro.</p>
+                <p className="text-blue-400 font-bold"><strong>5.-</strong> La confirmación de sus tickets será validada en nuestro portal web y notificada directamente a su CORREO ELECTRÓNICO con un recibo digital oficial, una vez que el pago sea verificado por nuestro equipo.</p>
                 <div className="h-[1px] w-full bg-slate-800/50"></div>
                 
-                <p className="text-red-400"><strong>11.- SE PROHÍBE TERMINANTEMENTE LA PARTICIPACIÓN DE MENORES DE EDAD.</strong> Asimismo, los adultos no podrán utilizar identidades de menores para registrarse en el sistema.</p>
+                <p><strong>6.-</strong> Los premios se pagan en la moneda oficial del país. No obstante, si el jugador adquirió su ticket ganador en otra divisa, se realizará la conversión de acuerdo con la tasa oficial del día.</p>
                 <div className="h-[1px] w-full bg-slate-800/50"></div>
                 
-                <p><strong>12.-</strong> Cualquier cambio de fecha en los resultados de los sorteos será anunciado previamente a través de nuestros canales oficiales de información.</p>
+                <p><strong>7.-</strong> Cada ganador tiene un lapso estricto de <strong>72 horas</strong> para reclamar su premio y atender a nuestro llamado. De no obtener respuesta, se procederá a elegir a otro ganador entre los mismos tickets vendidos.</p>
                 <div className="h-[1px] w-full bg-slate-800/50"></div>
                 
-                <p><strong>13.-</strong> Todas las llamadas a los ganadores son grabadas para dar fe y demostración pública de la transparencia de los resultados. Asimismo, los ganadores aceptan participar en la creación de contenido publicitario durante la entrega del premio.</p>
+                <p><strong>8.-</strong> Todas las llamadas a los ganadores son grabadas para dar fe y demostración pública de la transparencia de los resultados. Asimismo, los ganadores aceptan aparecer en el contenido audiovisual del sorteo mostrando su presencia en las redes y entrega de los premios. Esto es <strong>OBLIGATORIO</strong>.</p>
                 <div className="h-[1px] w-full bg-slate-800/50"></div>
                 
-                <p><strong>14.-</strong> La empresa se reserva el derecho de agregar o modificar estos términos y condiciones conforme cambien las leyes del pais o evolucionen nuestros juegos, siempre en pro de la seguridad de los usuarios.</p>
+                <p><strong>9.-</strong> Cualquier cambio de fecha en los resultados de los sorteos será anunciado previamente a través de nuestros canales oficiales de información.</p>
                 <div className="h-[1px] w-full bg-slate-800/50"></div>
                 
-                <p><strong>15.-</strong> Al participar, todos los usuarios aceptan automáticamente estos términos y condiciones, y autorizan el uso de sus datos para el envío de promociones, publicidad y noticias de interés relacionadas exclusivamente con Gana con Juvenil.</p>
+                <p><strong>10.-</strong> La empresa se reserva el derecho de agregar o modificar estos términos y condiciones conforme cambien las leyes del país o evolucionen nuestros juegos, siempre en pro de la seguridad de los usuarios.</p>
+                <div className="h-[1px] w-full bg-slate-800/50"></div>
+                
+                <p><strong>11.-</strong> Al participar, todos los usuarios aceptan automáticamente estos términos y condiciones, y autorizan el uso de sus datos para el envío de promociones, recibos digitales y noticias de interés relacionadas exclusivamente con Gana con Juvenil.</p>
               </div>
             </div>
 
