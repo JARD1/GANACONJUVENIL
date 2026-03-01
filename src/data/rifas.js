@@ -7,39 +7,26 @@
  */
 export const listaRifas = [
   {
-    id: "ford-fiesta-21",
-    nombre: "Ford Fiesta 2-1",
-    precioBoleto: 3.0,
-    maxTickets: 20,
-    imagen: "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c3/Ford_Fiesta_ST_Line_B479_Chrome_Blue_%281%29.jpg/500px-Ford_Fiesta_ST_Line_B479_Chrome_Blue_%281%29.jpg",
-    descripcion: "¡Participa por un Ford Fiesta en excelentes condiciones!",
+    id: "Moto MD 150cc 0km",
+    nombre: "Moto MD 150cc 0km",
+    precioBoleto: 1,
+    maxTickets: 10000,
+    imagen: "/img/sorteo1.png",
+    descripcion: `¿Te imaginas estrenando moto o llevándote cientos de dólares por tan solo 1$? 😱
+
+¡Deja de imaginar y hazlo realidad!
+
+Estamos lanzando nuestro gran sorteo con premios que no puedes dejar pasar:
+
+🏆 1er Lugar: ¡Una espectacular Moto 0km! 🏍️
+
+🥈 2nd Lugar: $600 en efectivo. 💵
+
+🥉 3rd Lugar: $400 en efectivo. 💵
+
+✨ Premios Especiales: Estaremos repartiendo 4 premios de $50 c/u para tickets ganadores. 💸
+
+¡Participar es súper fácil!`,
     estado: "activa", // <--- Controla si se vende o no
-  },
-  {
-    id: "moto-kawasaki-2026",
-    nombre: "Kawasaki KLR 650",
-    precioBoleto: 1.5,
-    maxTickets: 20,
-    imagen: "https://preview.redd.it/so-i-bought-a-klr-650-v0-7xqp735iiecb1.jpg?width=1080&crop=smart&auto=webp&s=44944be4535747e81a100752089084f9bcb09712",
-    descripcion: "La moto de tus sueños puede ser tuya por solo $1.50.",
-    estado: "finalizada", // <--- Controla si se vende o no
-  },
-  {
-    id: "moto-honda-2025",
-    nombre: "Honda CB650R",
-    precioBoleto: 2.0,
-    maxTickets: 20,
-    imagen: "https://preview.redd.it/cb650r-eye-candy-v0-6ksv5nujixpc1.jpeg?width=1080&crop=smart&auto=webp&s=c9f56f66cee220845785c4b22d5bea9836ddbfe6",
-    descripcion: "La moto de tus sueños puede ser tuya por solo $2.00.",
-    estado: "activa", 
-  },
-  {
-    id: "Iphone-14-Pro",
-    nombre: "iPhone 14 Pro Max",
-    precioBoleto: 5.0,
-    maxTickets: 20,
-    imagen: "https://i.blogs.es/9e6baf/img_0805/650_1200.jpg",
-    descripcion: "¡El iPhone más avanzado de Apple puede ser tuyo por solo $5.00!",
-    estado: "activa", 
   },
 ];

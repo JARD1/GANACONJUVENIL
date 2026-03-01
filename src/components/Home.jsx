@@ -40,12 +40,12 @@ export default function Home() {
                   style={{ animationDelay: `${index * 100}ms` }} 
                 >
                   
-                  {/* Contenedor de Imagen */}
-                  <div className="relative h-52 md:h-60 overflow-hidden shrink-0">
+                  {/* Contenedor de Imagen adaptado para Flyers Verticales */}
+                  <div className="relative h-[400px] md:h-[450px] lg:h-[500px] overflow-hidden shrink-0">
                     <img 
                       src={rifa.imagen} 
                       alt={rifa.nombre} 
-                      className={`w-full h-full object-cover transition-transform duration-700 ${
+                      className={`w-full h-full object-cover object-center transition-transform duration-700 ${
                         isFinalizada ? 'grayscale opacity-50' : 'opacity-90 group-hover:opacity-100 group-hover:scale-105'
                       }`}
                     />
@@ -72,13 +72,16 @@ export default function Home() {
 
                   {/* Contenido de la Tarjeta */}
                   <div className="p-5 flex flex-col flex-grow relative z-10">
-                    <h2 className="text-xl md:text-2xl font-black text-white uppercase italic leading-tight mb-2 line-clamp-2">
+                    {/* Título */}
+                    <h2 className="text-xl md:text-2xl font-black text-white uppercase italic leading-tight mb-2">
                       {rifa.nombre}
                     </h2>
                     
-                    <p className="text-slate-400 text-xs md:text-sm font-medium leading-relaxed mb-5 line-clamp-2">
+                    {/* 👇 DESCRIPCIÓN CORREGIDA: Sin límite de líneas y con saltos de línea (whitespace-pre-line) 👇 */}
+                    <p className="text-slate-400 text-xs md:text-sm font-medium leading-relaxed mb-5 whitespace-pre-line">
                       {rifa.descripcion}
                     </p>
+                    {/* 👆 FIN DESCRIPCIÓN CORREGIDA 👆 */}
                     
                     <div className="w-full bg-slate-800 h-1 rounded-full mb-5 overflow-hidden mt-auto">
                         <div className={`h-full w-3/4 rounded-full ${isFinalizada ? 'bg-red-600' : 'bg-gradient-to-r from-blue-600 to-cyan-400 shadow-[0_0_10px_rgba(37,99,235,0.8)]'}`}></div>
