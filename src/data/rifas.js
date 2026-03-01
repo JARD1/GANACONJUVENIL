@@ -20,11 +20,11 @@ Estamos lanzando nuestro gran sorteo con premios que no puedes dejar pasar:
 
 🏆 1er Lugar: ¡Una espectacular Moto 0km! 🏍️
 
-🥈 2nd Lugar: $600 en efectivo. 💵
+🥈 2nd Lugar: Equivalente $600 en Bs. 💵
 
-🥉 3rd Lugar: $400 en efectivo. 💵
+🥉 3rd Lugar: Equivalente $400 en Bs. 💵
 
-✨ Premios Especiales: Estaremos repartiendo 4 premios de $50 c/u para tickets ganadores. 💸
+✨ Premios Especiales: Estaremos repartiendo 4 premios equivalente a $50 en Bs. c/u para tickets ganadores. 💸
 
 ¡Participar es súper fácil!`,
     estado: "activa", // <--- Controla si se vende o no

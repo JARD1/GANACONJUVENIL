@@ -45,9 +45,9 @@ export default function ProcesoPago({
 
   // 👇 ACTUALIZACIÓN DE CUENTAS BANCARIAS REALES
   const datosCuentas = {
-    pagomovil: { banco: "Banesco", tlf: "04249498385", ci: "33.026.553" },
+    pagomovil: { banco: "Venezuela", tlf: "04148547150", ci: "13.595.835" },
     zelle: { correo: "BESTCOOL3939@GMAIL.COM", titular: "Bestcool LLC (Bank Of America)" },
-    binance: { id: "1216476969" }
+    binance: { id: "876839411", correo: "naim3377@gmail.com" }
   };
 
   const totalUSD = (Number(cantidad) || 0) * precioTicket;
@@ -428,7 +428,7 @@ export default function ProcesoPago({
                 <h3 className="font-black text-blue-500 uppercase mb-2 italic tracking-widest">Datos para transferir:</h3>
                 {metodo === "pagomovil" && <div className="space-y-1"><p>Banco: {datosCuentas.pagomovil.banco}</p><p>Teléfono: {datosCuentas.pagomovil.tlf}</p><p>C.I: {datosCuentas.pagomovil.ci}</p></div>}
                 {metodo === "zelle" && <div className="space-y-1"><p>Correo: {datosCuentas.zelle.correo}</p><p>Titular: {datosCuentas.zelle.titular}</p></div>}
-                {metodo === "binance" && <p>Pay ID: {datosCuentas.binance.id}</p>}
+                {metodo === "binance" && <p>Pay ID: {datosCuentas.binance.id} - Correo: {datosCuentas.binance.correo}</p>}
               </div>
             )}
 

@@ -5,7 +5,6 @@ import DetallesRifa from './components/DetallesRifa';
 import DashboardAdmin from './components/DashboardAdmin'; 
 import LoginAdmin from './components/LoginAdmin';
 import ConsultaTickets from './components/ConsultaTickets';
-import RuletaGanador from './components/RuletaGanador'; // <-- AQUÍ ESTÁ LA NUEVA IMPORTACIÓN
 
 import { sincronizarInventario } from './services/syncRifas';
 
@@ -102,8 +101,6 @@ function App() {
             <Route path="/participar/:id" element={MODO_MANTENIMIENTO ? <PantallaMantenimiento /> : <DetallesRifa />} />
             <Route path="/mis-tickets" element={MODO_MANTENIMIENTO ? <PantallaMantenimiento /> : <ConsultaTickets />} />
             
-            {/* --- LA RULETA DEL LIVE --- */}
-            <Route path="/ruleta" element={<RuletaGanador />} />
 
             <Route path="/admin" element={isLogged ? <DashboardAdmin /> : <LoginAdmin onLogin={setIsLogged} />} />
           </Routes>

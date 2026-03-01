@@ -65,10 +65,8 @@ export default function DetallesRifa() {
             <div className="text-left text-slate-300 text-[11px] md:text-xs space-y-4 overflow-y-auto pr-3 py-2 scrollbar-thin scrollbar-thumb-blue-600 scrollbar-track-slate-800/50 flex-grow">
               <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 shadow-inner space-y-3">
                 
-                {/* 👇 TÉRMINO 1 CORREGIDO AL IDIOMA DEL CLIENTE 👇 */}
                 <p><strong>1.-</strong> Los números de los boletos son asignados de forma automática y aleatoria por el sistema al momento de realizar su solicitud, garantizando total transparencia e igualdad de oportunidades para todos los participantes.</p>
                 <div className="h-[1px] w-full bg-slate-800/50"></div>
-                {/* 👆 FIN TÉRMINO 1 👆 */}
 
                 <p className="text-red-400"><strong>2.- SE PROHÍBE TERMINANTEMENTE LA PARTICIPACIÓN DE MENORES DE EDAD.</strong> Solo podrán participar personas naturales mayores de 18 años. Asimismo, los adultos no podrán utilizar identidades de menores para registrarse en el sistema.</p>
                 <div className="h-[1px] w-full bg-slate-800/50"></div>
@@ -82,8 +80,10 @@ export default function DetallesRifa() {
                 <p className="text-blue-400 font-bold"><strong>5.-</strong> La confirmación de sus tickets será validada en nuestro portal web y notificada directamente a su CORREO ELECTRÓNICO con un recibo digital oficial, una vez que el pago sea verificado por nuestro equipo.</p>
                 <div className="h-[1px] w-full bg-slate-800/50"></div>
                 
-                <p><strong>6.-</strong> Los premios se pagan en la moneda oficial del país. No obstante, si el jugador adquirió su ticket ganador en otra divisa, se realizará la conversión de acuerdo con la tasa oficial del día.</p>
+                {/* 👇 TÉRMINO 6 CORREGIDO SEGÚN LEYES VENEZOLANAS 👇 */}
+                <p className="text-amber-400"><strong>6.-</strong> En estricto apego a la legislación venezolana vigente, los premios ofertados consistirán única y exclusivamente en bienes muebles (físicos) o transferencias electrónicas en moneda de curso legal (Bolívares), calculadas a la tasa oficial del Banco Central de Venezuela (BCV) del día del pago. Queda terminantemente prohibida la entrega de premios o denominaciones en divisas en efectivo.</p>
                 <div className="h-[1px] w-full bg-slate-800/50"></div>
+                {/* 👆 FIN TÉRMINO 6 👆 */}
                 
                 <p><strong>7.-</strong> Cada ganador tiene un lapso estricto de <strong>72 horas</strong> para reclamar su premio y atender a nuestro llamado. De no obtener respuesta, se procederá a elegir a otro ganador entre los mismos tickets vendidos.</p>
                 <div className="h-[1px] w-full bg-slate-800/50"></div>
@@ -94,7 +94,7 @@ export default function DetallesRifa() {
                 <p><strong>9.-</strong> Cualquier cambio de fecha en los resultados de los sorteos será anunciado previamente a través de nuestros canales oficiales de información.</p>
                 <div className="h-[1px] w-full bg-slate-800/50"></div>
                 
-                <p><strong>10.-</strong> La empresa se reserva el derecho de agregar o modificar estos términos y condiciones conforme cambien las leyes del país o evolucionen nuestros juegos, siempre en pro de la seguridad de los usuarios.</p>
+                <p><strong>10.-</strong> La empresa organizadora se reserva el derecho de agregar o modificar estos términos y condiciones conforme cambien las leyes del Estado Venezolano y las normativas de la Comisión Nacional de Lotería (CONALOT), siempre en pro de la seguridad legal de los usuarios.</p>
                 <div className="h-[1px] w-full bg-slate-800/50"></div>
                 
                 <p><strong>11.-</strong> Al participar, todos los usuarios aceptan automáticamente estos términos y condiciones, y autorizan el uso de sus datos para el envío de promociones, recibos digitales y noticias de interés relacionadas exclusivamente con Gana con Juvenil.</p>
@@ -156,7 +156,7 @@ export default function DetallesRifa() {
                   {rifa.nombre}
                 </h1>
                 <div className={`w-16 h-1.5 rounded-full mb-6 ${isFinalizada ? 'bg-red-600' : 'bg-blue-600 shadow-[0_0_15px_rgba(37,99,235,0.4)]'}`}></div>
-                <p className="text-slate-400 leading-relaxed text-base md:text-lg font-medium">
+                <p className="text-slate-400 leading-relaxed text-base md:text-lg font-medium whitespace-pre-line">
                   {rifa.descripcion}
                 </p>
                 <div className="mt-8 pt-8 border-t border-slate-800 flex items-center justify-between text-[9px] md:text-[10px] font-black text-slate-500 uppercase tracking-widest">
