@@ -37,7 +37,7 @@ function App() {
   const fondoRifa = "/img/fondo de rifa.png"; 
   
   // 🟢 NÚMERO DE SOPORTE WHATSAPP (Cámbialo por el tuyo)
-  const numeroSoporte = "584120000000"; 
+  const numeroSoporte = "584241855037"; 
   const mensajeSoporte = "Hola, necesito ayuda con la plataforma de Gana con Juvenil.";
 
   return (
