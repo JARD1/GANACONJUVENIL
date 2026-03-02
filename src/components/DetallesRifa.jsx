@@ -79,7 +79,7 @@ export default function DetallesRifa() {
                 <p><strong>5.-</strong> La confirmación de sus tickets será validada en nuestro portal web y notificada directamente a su CORREO ELECTRÓNICO con un recibo digital oficial, una vez que el pago sea verificado por nuestro equipo.</p>
                 <div className="h-[1px] w-full bg-slate-800/50"></div>
                 
-                <p><strong>6.-</strong> En estricto apego a la legislación venezolana vigente, los premios ofertados consistirán única y exclusivamente en bienes muebles (físicos) o transferencias electrónicas en moneda de curso legal (Bolívares), calculadas a la tasa oficial del Banco Central de Venezuela (BCV) del día del pago. Queda terminantemente prohibida la entrega de premios o denominaciones en divisas en efectivo.</p>
+                <p><strong>6.-</strong> Queda terminantemente prohibida la entrega de premios o denominaciones en divisas en efectivo.</p>
                 <div className="h-[1px] w-full bg-slate-800/50"></div>
                 
                 <p><strong>7.-</strong> Cada ganador tiene un lapso estricto de <strong>72 horas</strong> para reclamar su premio y atender a nuestro llamado. De no obtener respuesta, se procederá a elegir a otro ganador entre los mismos tickets vendidos.</p>
