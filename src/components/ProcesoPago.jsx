@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import { db } from '../firebase'; 
 import { collection, query, where, getDocs, doc, addDoc, runTransaction, serverTimestamp, updateDoc, arrayUnion } from "firebase/firestore";
 import CryptoJS from 'crypto-js';
-import emailjs from '@emailjs/browser';
 
 export default function ProcesoPago({ 
   rifaId, 
@@ -39,9 +38,6 @@ export default function ProcesoPago({
   // VARIABLES DE ENTORNO
   const SECRET_KEY = import.meta.env.VITE_SECRET_KEY; 
   const API_KEY_IMGBB = import.meta.env.VITE_IMGBB_KEY;
-  const EMAILJS_SERVICE = import.meta.env.VITE_EMAILJS_SERVICE_ID;
-  const EMAILJS_TEMPLATE_PIN = import.meta.env.VITE_EMAILJS_TEMPLATE_PIN;
-  const EMAILJS_PUBLIC_KEY = import.meta.env.VITE_EMAILJS_PUBLIC_KEY;
 
   // 👇 ACTUALIZACIÓN DE CUENTAS BANCARIAS REALES
   const datosCuentas = {
@@ -99,17 +95,23 @@ export default function ProcesoPago({
       const pin = Math.floor(1000 + Math.random() * 9000).toString();
       setCodigoGenerado(pin);
       
-      // 4. ENVÍO DE CORREO
+      // 4. ENVÍO DE CORREO (NUEVA ARQUITECTURA VERCEL + RESEND)
       try {
-        await emailjs.send(
-          EMAILJS_SERVICE,
-          EMAILJS_TEMPLATE_PIN,
-          {
-            to_email: correo,
-            pin: pin,
+        const respuestaCorreo = await fetch('/api/enviarCorreo', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
           },
-          EMAILJS_PUBLIC_KEY
-        );
+          body: JSON.stringify({
+            tipo: 'pin',
+            email: correo,
+            datos: { pin: pin }
+          })
+        });
+
+        if (!respuestaCorreo.ok) {
+          throw new Error('El servidor de correos no respondió correctamente.');
+        }
       } catch (err) {
         console.error("Error enviando el correo:", err);
         // Si falla el correo, devolvemos los tickets al Pool automáticamente
