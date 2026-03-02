@@ -12,7 +12,7 @@ import { sincronizarInventario } from './services/syncRifas';
 // 🚧 EL INTERRUPTOR MÁGICO DE MANTENIMIENTO
 // Si en tu archivo .env o en Vercel pones VITE_MODO_MANTENIMIENTO=true, la página se tumba para el público.
 // =========================================================================
-const MODO_MANTENIMIENTO = import.meta.env.VITE_MODO_MANTENIMIENTO === 'false';
+const MODO_MANTENIMIENTO = import.meta.env.VITE_MODO_MANTENIMIENTO === 'true';
 
 const PantallaMantenimiento = () => (
   <div className="min-h-[60vh] flex flex-col items-center justify-center text-center px-4 animate-in fade-in duration-700">
