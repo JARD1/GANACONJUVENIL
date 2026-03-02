@@ -1,14 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { db, auth } from '../firebase'; // Añadido "auth"
-import { signOut } from "firebase/auth"; // Importamos la función de cierre de sesión
+import { db, auth } from '../firebase'; 
+import { signOut } from "firebase/auth"; 
 import { collection, query, where, getDocs, doc, writeBatch, orderBy, limit, getDoc, serverTimestamp, updateDoc, arrayUnion, arrayRemove } from "firebase/firestore";
 import { listaRifas } from '../data/rifas.js';
 import * as XLSX from 'xlsx';
-import emailjs from '@emailjs/browser';
 
 export default function DashboardAdmin() {
-  const navigate = useNavigate(); // Hook para redireccionar al salir
+  const navigate = useNavigate(); 
   
   const [rifaSeleccionada, setRifaSeleccionada] = useState(listaRifas[0]?.id || "");
   const [pagos, setPagos] = useState([]);
@@ -25,10 +24,6 @@ export default function DashboardAdmin() {
   const [modalVenta, setModalVenta] = useState(false);
   const [formVenta, setFormVenta] = useState({ nombre: "", whatsapp: "", tickets: "", monto: "", metodoPago: "", referencia: "" });
 
-  const EMAILJS_SERVICE = import.meta.env.VITE_EMAILJS_SERVICE_ID;
-  const EMAILJS_TEMPLATE_TICKETS = import.meta.env.VITE_EMAILJS_TEMPLATE_TICKETS;
-  const EMAILJS_PUBLIC_KEY = import.meta.env.VITE_EMAILJS_PUBLIC_KEY;
-
   useEffect(() => {
     if (!rifaSeleccionada) return;
     cargarPagos();
@@ -42,7 +37,7 @@ export default function DashboardAdmin() {
     if (!window.confirm("¿Seguro que deseas cerrar sesión y salir del Panel Admin?")) return;
     try {
       await signOut(auth);
-      navigate('/'); // Redirige al inicio para no dejar la vista admin abierta
+      navigate('/'); 
     } catch (error) {
       console.error("Error al cerrar sesión:", error);
       alert("Hubo un error al intentar cerrar sesión.");
@@ -155,20 +150,47 @@ export default function DashboardAdmin() {
     }
   };
 
+  // --- FUNCIÓN REESCRITA CON LA NUEVA API DE CORREOS (RESEND + VERCEL) ---
   const aprobarPago = async (pago) => {
     if (!window.confirm(`¿Aprobar los tickets de ${pago.nombreCliente}?`)) return;
     setCargando(true);
     try {
+      // 1. Actualizamos en Firebase primero
       await updateDoc(doc(db, "pagos", pago.id), { estado: "confirmado" });
 
+      // 2. Enviamos el correo solo si es un correo real (no Venta Directa)
       try {
-        await emailjs.send(EMAILJS_SERVICE, EMAILJS_TEMPLATE_TICKETS, {
-          to_email: pago.correo, nombre_cliente: pago.nombreCliente, monto: `$${pago.montoUsd}`, tickets: pago.tickets.join(" - ")
-        }, EMAILJS_PUBLIC_KEY);
-      } catch (e) { console.error("Error email", e); }
+        if (pago.correo && pago.correo !== "Venta Directa" && pago.correo.includes("@")) {
+          const respuestaCorreo = await fetch('/api/enviarCorreo', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              tipo: 'confirmacion',
+              email: pago.correo,
+              datos: { 
+                nombre: pago.nombreCliente,
+                tickets: pago.tickets 
+              }
+            })
+          });
+
+          if (!respuestaCorreo.ok) {
+            console.warn("No se pudo enviar el correo de confirmación, pero los tickets se aprobaron en la base de datos.");
+          }
+        }
+      } catch (e) { 
+        console.error("Error al hacer la petición a la API de correos:", e); 
+      }
       
-      cargarPagos(); cargarEstadisticas();
-    } catch (error) { alert("Error al aprobar"); } finally { setCargando(false); }
+      cargarPagos(); 
+      cargarEstadisticas();
+    } catch (error) { 
+      alert("Error al aprobar"); 
+    } finally { 
+      setCargando(false); 
+    }
   };
 
   const rechazarPago = async (pago) => {
