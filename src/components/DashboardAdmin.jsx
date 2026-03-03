@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { db, auth } from '../firebase'; 
 import { signOut } from "firebase/auth"; 
-import { collection, query, where, getDocs, doc, writeBatch, orderBy, limit, getDoc, serverTimestamp, updateDoc, arrayUnion, arrayRemove } from "firebase/firestore";
+import { collection, query, where, getDocs, doc, orderBy, limit, getDoc, serverTimestamp, updateDoc, arrayUnion, arrayRemove, runTransaction } from "firebase/firestore";
 import { listaRifas } from '../data/rifas.js';
 import * as XLSX from 'xlsx';
 
@@ -23,6 +23,7 @@ export default function DashboardAdmin() {
 
   const [modalVenta, setModalVenta] = useState(false);
   const [formVenta, setFormVenta] = useState({ nombre: "", whatsapp: "", tickets: "", monto: "", metodoPago: "", referencia: "" });
+  const [cantidadRandom, setCantidadRandom] = useState(1);
 
   useEffect(() => {
     if (!rifaSeleccionada) return;
@@ -86,8 +87,17 @@ export default function DashboardAdmin() {
     }
   };
 
+  // --- LIMPIEZA CON CLAVE MAESTRA ---
   const limpiarTicketsFantasmas = async () => {
-    if (!window.confirm("⚠️ El sistema cruzará la tómbola con las ventas para hallar tickets perdidos. ¿Proceder?")) return;
+    const claveIngresada = window.prompt("⚠️ ACCIÓN DELICADA ⚠️\n\nEl sistema cruzará la tómbola con las ventas para hallar tickets perdidos.\n\nIngrese la Clave de Administrador para proceder:");
+    
+    if (claveIngresada === null) return;
+
+    if (claveIngresada !== import.meta.env.VITE_ADMIN_PASSWORD) {
+      alert("❌ Clave incorrecta. Acceso denegado.");
+      return;
+    }
+
     setCargando(true);
     try {
       const rifaSnap = await getDoc(doc(db, "rifas", rifaSeleccionada));
@@ -150,38 +160,23 @@ export default function DashboardAdmin() {
     }
   };
 
-  // --- FUNCIÓN REESCRITA CON LA NUEVA API DE CORREOS (RESEND + VERCEL) ---
   const aprobarPago = async (pago) => {
     if (!window.confirm(`¿Aprobar los tickets de ${pago.nombreCliente}?`)) return;
     setCargando(true);
     try {
-      // 1. Actualizamos en Firebase primero
       await updateDoc(doc(db, "pagos", pago.id), { estado: "confirmado" });
 
-      // 2. Enviamos el correo solo si es un correo real (no Venta Directa)
       try {
         if (pago.correo && pago.correo !== "Venta Directa" && pago.correo.includes("@")) {
           const respuestaCorreo = await fetch('/api/enviarCorreo', {
             method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              tipo: 'confirmacion',
-              email: pago.correo,
-              datos: { 
-                nombre: pago.nombreCliente,
-                tickets: pago.tickets 
-              }
-            })
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ tipo: 'confirmacion', email: pago.correo, datos: { nombre: pago.nombreCliente, tickets: pago.tickets } })
           });
-
-          if (!respuestaCorreo.ok) {
-            console.warn("No se pudo enviar el correo de confirmación, pero los tickets se aprobaron en la base de datos.");
-          }
+          if (!respuestaCorreo.ok) console.warn("No se pudo enviar el correo de confirmación.");
         }
       } catch (e) { 
-        console.error("Error al hacer la petición a la API de correos:", e); 
+        console.error("Aviso: Error local al intentar enviar correo. En Vercel funcionará.", e); 
       }
       
       cargarPagos(); 
@@ -249,6 +244,30 @@ export default function DashboardAdmin() {
     } catch (error) { alert("Error al liberar"); } finally { setCargando(false); }
   };
 
+  const generarAleatoriosParaVenta = async () => {
+    setCargando(true);
+    try {
+      const rifaSnap = await getDoc(doc(db, "rifas", rifaSeleccionada));
+      const libres = rifaSnap.data()?.ticketsLibres || [];
+      
+      if (libres.length < cantidadRandom) {
+        throw new Error(`Solo quedan ${libres.length} tickets disponibles.`);
+      }
+
+      const mezclados = [...libres].sort(() => 0.5 - Math.random());
+      const seleccionados = mezclados.slice(0, cantidadRandom);
+
+      setFormVenta(prev => ({
+        ...prev,
+        tickets: seleccionados.join(", ")
+      }));
+    } catch (error) {
+      alert(error.message);
+    } finally {
+      setCargando(false);
+    }
+  };
+
   const procesarVentaManual = async (e) => {
     e.preventDefault();
     setCargando(true);
@@ -259,31 +278,39 @@ export default function DashboardAdmin() {
       const numerosArreglo = formVenta.tickets.split(",").map(n => n.trim().padStart(4, '0')).filter(n => n !== "0000" && n !== "");
       if (numerosArreglo.length === 0) throw new Error("Debe ingresar al menos un ticket válido.");
 
-      const rifaSnap = await getDoc(doc(db, "rifas", rifaSeleccionada));
-      const libres = rifaSnap.data()?.ticketsLibres || [];
-      
-      for (const num of numerosArreglo) {
-        if (!libres.includes(num)) throw new Error(`El ticket ${num} ya fue vendido o no está disponible.`);
-      }
-
-      await updateDoc(doc(db, "rifas", rifaSeleccionada), { ticketsLibres: arrayRemove(...numerosArreglo) });
-
       const montoAbsoluto = Math.abs(Number(formVenta.monto)) || 0;
-      await addDoc(collection(db, "pagos"), {
-        nombreCliente: formVenta.nombre + " (Manual)",
-        whatsapp: formVenta.whatsapp,
-        correo: "Venta Directa",
-        direccion: "Taquilla",
-        metodoPago: formVenta.metodoPago,
-        referencia: formVenta.referencia, 
-        rifaId: rifaSeleccionada,
-        cantidadTickets: numerosArreglo.length,
-        tickets: numerosArreglo,
-        montoUsd: montoAbsoluto,
-        montoBs: 0,
-        estado: "confirmado",
-        fecha: serverTimestamp(),
-        comprobanteUrl: ""
+
+      await runTransaction(db, async (transaction) => {
+        const rifaRef = doc(db, "rifas", rifaSeleccionada);
+        const snap = await transaction.get(rifaRef);
+        const libres = snap.data()?.ticketsLibres || [];
+        
+        for (const num of numerosArreglo) {
+          if (!libres.includes(num)) {
+            throw new Error(`El ticket ${num} ya fue vendido o no está disponible.`);
+          }
+        }
+
+        const nuevosLibres = libres.filter(t => !numerosArreglo.includes(t));
+        transaction.update(rifaRef, { ticketsLibres: nuevosLibres });
+
+        const nuevoPagoRef = doc(collection(db, "pagos"));
+        transaction.set(nuevoPagoRef, {
+          nombreCliente: formVenta.nombre + " (Manual)",
+          whatsapp: formVenta.whatsapp,
+          correo: "Venta Directa",
+          direccion: "Taquilla",
+          metodoPago: formVenta.metodoPago,
+          referencia: formVenta.referencia, 
+          rifaId: rifaSeleccionada,
+          cantidadTickets: numerosArreglo.length,
+          tickets: numerosArreglo,
+          montoUsd: montoAbsoluto,
+          montoBs: 0,
+          estado: "confirmado",
+          fecha: serverTimestamp(),
+          comprobanteUrl: ""
+        });
       });
 
       alert("✅ Venta manual registrada con éxito.");
@@ -399,7 +426,6 @@ export default function DashboardAdmin() {
             📊 Excel
           </button>
 
-          {/* BOTÓN SALIR / CERRAR SESIÓN */}
           <button onClick={cerrarSesion} className="flex-1 sm:flex-none bg-red-600/20 hover:bg-red-600 text-red-500 hover:text-white border border-red-500/30 px-4 py-3 rounded-xl font-black uppercase text-[10px] tracking-widest transition-all shadow-lg shadow-red-900/20 active:scale-95">
             🚪 Salir
           </button>
@@ -505,9 +531,30 @@ export default function DashboardAdmin() {
       {/* MODAL: VENTA MANUAL */}
       {modalVenta && (
         <div className="fixed inset-0 z-[600] flex items-center justify-center p-4 bg-black/90 backdrop-blur-sm">
-          <form onSubmit={procesarVentaManual} className="bg-slate-900 w-full max-w-md rounded-[2.5rem] p-8 border border-slate-700 shadow-2xl">
+          <div className="bg-slate-900 w-full max-w-md rounded-[2.5rem] p-8 border border-slate-700 shadow-2xl max-h-[90vh] overflow-y-auto scrollbar-thin scrollbar-thumb-blue-600">
             <h2 className="text-2xl font-black text-white uppercase italic mb-6">🎟️ Venta Manual</h2>
-            <div className="space-y-4">
+            
+            {/* NUEVA SECCIÓN: GENERADOR RANDOM */}
+            <div className="bg-slate-950 p-4 border border-blue-500/30 rounded-xl mb-6 shadow-inner">
+              <label className="text-[10px] font-black uppercase text-blue-400 block mb-2 tracking-widest">🎲 Autocompletar Tickets al Azar</label>
+              <div className="flex gap-2">
+                <input 
+                  type="number" min="1" 
+                  value={cantidadRandom} 
+                  onChange={e => setCantidadRandom(Number(e.target.value))} 
+                  className="w-20 p-3 bg-slate-900 border border-slate-700 rounded-lg outline-none font-black text-white text-center focus:border-blue-500" 
+                />
+                <button 
+                  type="button" 
+                  onClick={generarAleatoriosParaVenta}
+                  className="flex-1 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-black uppercase text-[10px] transition-colors shadow-lg active:scale-95"
+                >
+                  Generar y Pegar
+                </button>
+              </div>
+            </div>
+
+            <form onSubmit={procesarVentaManual} className="space-y-4">
               <input type="text" placeholder="Nombre del Cliente" required value={formVenta.nombre} onChange={e => setFormVenta({...formVenta, nombre: e.target.value})} className="w-full p-4 bg-slate-950 border border-slate-800 rounded-xl outline-none font-bold text-white focus:border-blue-500" />
               <input type="text" placeholder="WhatsApp (Ej. 0412...)" required value={formVenta.whatsapp} onChange={e => setFormVenta({...formVenta, whatsapp: e.target.value})} className="w-full p-4 bg-slate-950 border border-slate-800 rounded-xl outline-none font-bold text-white focus:border-blue-500" />
               
@@ -527,13 +574,15 @@ export default function DashboardAdmin() {
               <div>
                 <label className="text-[10px] font-black uppercase text-slate-500 block mb-1">Números a asignar (Separados por coma)</label>
                 <input type="text" placeholder="Ej. 0005, 0012, 0105" required value={formVenta.tickets} onChange={e => setFormVenta({...formVenta, tickets: e.target.value})} className="w-full p-4 bg-slate-950 border border-slate-800 rounded-xl outline-none font-black tracking-widest text-blue-400 focus:border-blue-500" />
+                <p className="text-[9px] text-slate-500 mt-1 italic">* Puedes escribirlos a mano o usar el botón azul de arriba.</p>
               </div>
-            </div>
-            <div className="flex gap-3 mt-8">
-              <button type="button" onClick={() => setModalVenta(false)} className="flex-1 bg-slate-800 text-slate-400 py-4 rounded-xl font-black uppercase text-[10px] transition-colors hover:text-white">Cancelar</button>
-              <button type="submit" disabled={cargando} className="flex-1 bg-blue-600 text-white py-4 rounded-xl font-black uppercase text-[10px] shadow-lg shadow-blue-900/30 transition-transform active:scale-95">{cargando ? 'Guardando...' : 'Guardar Venta'}</button>
-            </div>
-          </form>
+              
+              <div className="flex gap-3 mt-8">
+                <button type="button" onClick={() => setModalVenta(false)} className="flex-1 bg-slate-800 text-slate-400 py-4 rounded-xl font-black uppercase text-[10px] transition-colors hover:text-white">Cancelar</button>
+                <button type="submit" disabled={cargando} className="flex-1 bg-blue-600 text-white py-4 rounded-xl font-black uppercase text-[10px] shadow-lg shadow-blue-900/30 transition-transform active:scale-95">{cargando ? 'Guardando...' : 'Guardar Venta'}</button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
 
