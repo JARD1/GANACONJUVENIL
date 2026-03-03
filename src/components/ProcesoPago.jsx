@@ -31,7 +31,7 @@ export default function ProcesoPago({
   
   // SISTEMA
   const [cargando, setCargando] = useState(false);
-  const [ticketsAsignados, setTicketsAsignados] = useState([]); // Ahora solo se llena al final
+  const [ticketsAsignados, setTicketsAsignados] = useState([]); 
   const [whatsappFormateado, setWhatsappFormateado] = useState(""); 
   const [modalStatus, setModalStatus] = useState({ visible: false, tipo: '', mensaje: '' });
 
@@ -50,12 +50,12 @@ export default function ProcesoPago({
 
   const mostrarAviso = (tipo, mensaje) => { setModalStatus({ visible: true, tipo, mensaje }); };
 
-  // --- PASO 1: VALIDAR DATOS Y ENVIAR PIN (CERO TICKETS SACADOS AQUÍ) ---
+  // --- PASO 1: VALIDAR DATOS Y ENVIAR PIN ---
   const procesarPaso1 = async (e) => {
     e.preventDefault();
     const cant = Number(cantidad);
     if (cant < 2) return mostrarAviso('error', 'La compra mínima es de 2 boletos.');
-    if (cant > 100) return mostrarAviso('error', 'Por seguridad, el máximo es 100 boletos por compra.'); // Límite anti-trolls
+    if (cant > 100) return mostrarAviso('error', 'Por seguridad, el máximo es 100 boletos por compra.'); 
     
     let numLimpio = whatsapp.replace(/\D/g, ''); 
     if (numLimpio.startsWith('0')) numLimpio = numLimpio.substring(1); 
@@ -64,7 +64,6 @@ export default function ProcesoPago({
 
     setCargando(true);
     try {
-      // SOLO verificamos si hay disponibilidad, NO sacamos los números
       const rifaRef = doc(db, "rifas", rifaId);
       const snap = await getDoc(rifaRef);
       if (!snap.exists()) throw new Error("La rifa no existe.");
@@ -74,17 +73,27 @@ export default function ProcesoPago({
         throw new Error(`Lo sentimos, solo quedan ${libres.length} tickets disponibles en la tómbola.`);
       }
 
-      // Generar PIN de 4 dígitos y enviarlo
+      // Generar PIN de 4 dígitos
       const pin = Math.floor(1000 + Math.random() * 9000).toString();
       setCodigoGenerado(pin);
       
-      const respuestaCorreo = await fetch('/api/enviarCorreo', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tipo: 'pin', email: correo, datos: { pin: pin } })
-      });
+      try {
+        const respuestaCorreo = await fetch('/api/enviarCorreo', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tipo: 'pin', email: correo, datos: { pin: pin } })
+        });
 
-      if (!respuestaCorreo.ok) throw new Error('Fallo en el servidor de correos.');
+        if (!respuestaCorreo.ok) {
+          const errorMsg = await respuestaCorreo.text();
+          console.error("Error devuelto por la API de correos:", errorMsg);
+          throw new Error('Fallo en el servidor de correos.');
+        }
+      } catch (correoError) {
+        console.error("Error de conexión con /api:", correoError);
+        // MODO DE RESCATE PARA PRUEBAS LOCALES
+        alert(`⚠️ AVISO DE SISTEMA (Solo visible porque falló el correo):\n\nEl PIN generado es: ${pin}\n\nUsa este PIN para continuar las pruebas.`);
+      }
 
       setWhatsappFormateado(numLimpio);
       setPaso(2); 
@@ -112,18 +121,15 @@ export default function ProcesoPago({
     
     setCargando(true);
     try {
-      // 1. Evitar referencias duplicadas
       const qRef = query(collection(db, "pagos"), where("referencia", "==", referencia), where("metodoPago", "==", metodo));
       const resRef = await getDocs(qRef);
       if (!resRef.empty) throw new Error('Esta referencia ya fue usada en nuestro sistema.');
 
-      // 2. Subir imagen
       const formData = new FormData();
       formData.append("image", archivo);
       const resImg = await fetch(`https://api.imgbb.com/1/upload?key=${API_KEY_IMGBB}`, { method: "POST", body: formData });
       const dataImg = await resImg.json();
 
-      // 3. TRANSACCIÓN ATÓMICA: Sacar tickets y registrar
       const cant = Number(cantidad);
       const asignados = await runTransaction(db, async (transaction) => {
         const rifaRef = doc(db, "rifas", rifaId);
@@ -131,25 +137,21 @@ export default function ProcesoPago({
         const data = snap.data();
         let libres = data.ticketsLibres || [];
 
-        // Validar por si alguien compró el último ticket justo antes que él
         if (libres.length < cant) {
           throw new Error("Lo sentimos, los tickets se agotaron mientras realizabas el pago. Contáctanos por WhatsApp para tu reembolso.");
         }
 
-        // Shuffling y extracción
         const mezclados = [...libres].sort(() => 0.5 - Math.random());
         const seleccionados = mezclados.slice(0, cant);
         const nuevosLibres = libres.filter(t => !seleccionados.includes(t));
 
-        // Actualizar la tómbola
         transaction.update(rifaRef, { ticketsLibres: nuevosLibres });
 
         return seleccionados;
       });
 
-      setTicketsAsignados(asignados); // Los guardamos para mostrarlos en el recibo (Paso 4)
+      setTicketsAsignados(asignados); 
 
-      // 4. Guardar el reporte de pago
       const hash = CryptoJS.SHA256(`${nombre}-${referencia}-${whatsappFormateado}-${totalUSD}-${asignados.join(',')}-${SECRET_KEY}`).toString();
 
       await addDoc(collection(db, "pagos"), {
@@ -162,7 +164,7 @@ export default function ProcesoPago({
         comprobanteUrl: dataImg.data.url,
         rifaId,
         cantidadTickets: cant,
-        tickets: asignados, // Guardamos los tickets extraídos aquí
+        tickets: asignados, 
         montoUsd: totalUSD,
         montoBs: totalBS,
         tasaReferencia: tasaExterna,
@@ -171,7 +173,7 @@ export default function ProcesoPago({
         integrityHash: hash 
       });
 
-      setPaso(4); // Pasamos al éxito
+      setPaso(4); 
     } catch (error) {
       mostrarAviso('error', error.message || 'Error al procesar. Intenta nuevamente.');
     } finally {
@@ -253,7 +255,7 @@ export default function ProcesoPago({
               <div className="flex justify-between items-center p-4 bg-blue-600/10 border border-blue-500/20 rounded-2xl">
                   <span className="text-[10px] font-black text-blue-400 uppercase tracking-widest">Total Bs.</span>
                   <div className="text-right">
-                    <span className="text-xl font-black text-white">{totalBS.toLocaleString('es-VE', { minimumFractionDigits: 2 })}</span>
+                    <span className="text-xl font-black text-white">{totalBS.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                     <p className="text-[9px] text-slate-400 mt-1 uppercase font-bold tracking-widest">Tasa BCV: {tasaExterna}</p>
                   </div>
               </div>
@@ -305,7 +307,7 @@ export default function ProcesoPago({
           <div className="space-y-5">
             <select required value={metodo} onChange={(e) => setMetodo(e.target.value)} className="w-full p-4 bg-slate-950 border border-slate-800 rounded-2xl font-black text-slate-300 outline-none focus:border-blue-600 appearance-none shadow-inner">
               <option value="" disabled>-- Selecciona Método de Pago --</option>
-              <option value="pagomovil">Pago Móvil (Bs {totalBS.toLocaleString('es-VE', { minimumFractionDigits: 2 })})</option>
+              <option value="pagomovil">Pago Móvil (Bs {totalBS.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})</option>
               <option value="zelle">Zelle (${totalUSD.toFixed(2)})</option>
               <option value="binance">Binance Pay (${totalUSD.toFixed(2)})</option>
             </select>
@@ -381,7 +383,7 @@ export default function ProcesoPago({
               <div className="bg-slate-900/50 p-4 rounded-2xl text-center border border-slate-800/50 mb-6">
                 <p className="text-[10px] text-slate-500 font-black uppercase tracking-widest mb-1">Monto Procesado</p>
                 <h3 className="text-3xl font-black text-green-500">${totalUSD.toFixed(2)}</h3>
-                <p className="text-xs text-slate-400 font-bold uppercase mt-1">Bs. {totalBS.toLocaleString('es-VE', { minimumFractionDigits: 2 })}</p>
+                <p className="text-xs text-slate-400 font-bold uppercase mt-1">Bs. {totalBS.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
               </div>
 
               <div className="space-y-3 text-xs border-y border-dashed border-slate-800 py-4 mb-6">
