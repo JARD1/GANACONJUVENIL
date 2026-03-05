@@ -40,7 +40,7 @@ export default function ProcesoPago({
   const API_KEY_IMGBB = import.meta.env.VITE_IMGBB_KEY;
 
   const datosCuentas = {
-    pagomovil: { banco: "Venezuela", tlf: "04148547150", ci: "13.595.835" },
+    pagomovil: { banco: "Bancamiga", tlf: "04148547150", ci: "13.595.835" },
     zelle: { correo: "BESTCOOL3939@GMAIL.COM", titular: "Bestcool LLC (Bank Of America)" },
     binance: { id: "876839411", correo: "naim3377@gmail.com" }
   };
