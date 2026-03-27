@@ -9,6 +9,9 @@ import * as XLSX from 'xlsx';
 export default function DashboardAdmin() {
   const navigate = useNavigate(); 
   
+  // Guardamos la clave en una constante al inicio del componente para asegurar su lectura
+  const ADMIN_PASSWORD = "Jadr22.";
+
   const [rifaSeleccionada, setRifaSeleccionada] = useState(listaRifas[0]?.id || "");
   const [pagos, setPagos] = useState([]);
   const [cargando, setCargando] = useState(false);
@@ -87,13 +90,14 @@ export default function DashboardAdmin() {
     }
   };
 
-  // --- LIMPIEZA CON CLAVE MAESTRA ---
+  // --- LIMPIEZA CON CLAVE MAESTRA CORREGIDA ---
   const limpiarTicketsFantasmas = async () => {
     const claveIngresada = window.prompt("⚠️ ACCIÓN DELICADA ⚠️\n\nEl sistema cruzará la tómbola con las ventas para hallar tickets perdidos.\n\nIngrese la Clave de Administrador para proceder:");
     
-    if (claveIngresada === null) return;
+    if (claveIngresada === null) return; // Si le da a cancelar
 
-    if (claveIngresada !== import.meta.env.VITE_ADMIN_PASSWORD) {
+    // Usamos la constante que declaramos al inicio
+    if (claveIngresada !== ADMIN_PASSWORD) {
       alert("❌ Clave incorrecta. Acceso denegado.");
       return;
     }
@@ -280,6 +284,11 @@ export default function DashboardAdmin() {
 
       const montoAbsoluto = Math.abs(Number(formVenta.monto)) || 0;
 
+      // 🚀 SOLUCIÓN: Limpiamos y formateamos el WhatsApp del Admin antes de guardarlo
+      let numAdminLimpio = formVenta.whatsapp.replace(/\D/g, ''); 
+      if (numAdminLimpio.startsWith('0')) numAdminLimpio = numAdminLimpio.substring(1); 
+      if (!numAdminLimpio.startsWith('58')) numAdminLimpio = '58' + numAdminLimpio; 
+
       await runTransaction(db, async (transaction) => {
         const rifaRef = doc(db, "rifas", rifaSeleccionada);
         const snap = await transaction.get(rifaRef);
@@ -297,7 +306,7 @@ export default function DashboardAdmin() {
         const nuevoPagoRef = doc(collection(db, "pagos"));
         transaction.set(nuevoPagoRef, {
           nombreCliente: formVenta.nombre + " (Manual)",
-          whatsapp: formVenta.whatsapp,
+          whatsapp: numAdminLimpio, // <--- AHORA GUARDAMOS EL NÚMERO LIMPIO CON EL 58
           correo: "Venta Directa",
           direccion: "Taquilla",
           metodoPago: formVenta.metodoPago,
