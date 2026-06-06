@@ -36,6 +36,7 @@ El mayor reto técnico fue evitar la colisión de boletos durante picos de tráf
   /hooks          # Custom hooks para lógica transaccional
   /services       # Integración con Firebase SDK
   /pages          # Vistas principales (Home, Cart, Backoffice)
+```
 
   ```markdown
 ---
