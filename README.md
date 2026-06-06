@@ -1,16 +1,54 @@
-# React + Vite
+# GanaConJuvenil 🎟️
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+## Descripción del Proyecto
+Plataforma transaccional B2C diseñada para la gestión y venta de rifas digitales. El sistema permite a los usuarios participar en sorteos en tiempo real, garantizando una experiencia de compra fluida y segura, respaldada por un panel administrativo (Backoffice) que permite el control total del inventario y la verificación de pagos.
 
-Currently, two official plugins are available:
+---
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+## 🛠️ Stack Tecnológico
+El proyecto fue construido bajo un enfoque de **Arquitectura Serverless** para garantizar escalabilidad bajo alta demanda.
 
-## React Compiler
+* **Frontend:** React, Vite, Tailwind CSS.
+* **Backend & Cloud:** Firebase (Firestore, Authentication, Cloud Functions).
+* **Gestión de Estado:** React Context API / Hooks.
+* **Despliegue:** Firebase Hosting.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+---
 
-## Expanding the ESLint configuration
+## 🚀 Desafíos Técnicos (Engineering Insights)
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+### Gestión de Alta Concurrencia
+El mayor reto técnico fue evitar la colisión de boletos durante picos de tráfico. Para mitigar esto, se implementó:
+- **Arquitectura Basada en Eventos:** Validación transaccional aislada mediante Cloud Functions para asegurar que dos usuarios no puedan adquirir el mismo número simultáneamente.
+- **Sincronización en Tiempo Real:** Uso de *Firebase Firestore* para reflejar el estado del inventario en vivo, minimizando el lag entre la compra del usuario y la actualización del sistema.
+
+### Panel Administrativo (Backoffice)
+- Implementación de **Firebase Admin SDK** para la validación de pagos y auditoría de transacciones, asegurando la integridad de la data financiera del proyecto.
+
+---
+
+## 🏗️ Estructura del Proyecto
+```bash
+/src
+  /assets         # Recursos visuales
+  /components     # Componentes UI reutilizables
+  /context        # Lógica de estado global
+  /hooks          # Custom hooks para lógica transaccional
+  /services       # Integración con Firebase SDK
+  /pages          # Vistas principales (Home, Cart, Backoffice)
+
+  ```markdown
+---
+
+## 📝 Roadmap & Status
+- [x] Implementación de pasarela de validación.
+- [x] Panel administrativo seguro.
+- [x] Optimización de consultas para baja latencia.
+- [ ] Integración de notificaciones automáticas vía WhatsApp.
+
+---
+
+## 👨‍💻 Autor
+**Jorge Diaz**
+*Full-Stack Software Engineer*
+*Especializado en Arquitectura de Software y Product Engineering.*
