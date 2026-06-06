@@ -40,9 +40,9 @@ export default function ProcesoPago({
   const API_KEY_IMGBB = import.meta.env.VITE_IMGBB_KEY;
 
   const datosCuentas = {
-    pagomovil: { banco: "Bancamiga", tlf: "04148547150", ci: "13.595.835" },
-    zelle: { correo: "BESTCOOL3939@GMAIL.COM", titular: "Bestcool LLC (Bank Of America)" },
-    binance: { id: "876839411", correo: "naim3377@gmail.com" }
+    pagomovil: { banco: "Bancamiga", tlf: "000000000", ci: "00000000" },
+    zelle: { correo: "CORREO@GMAIL.COM", titular: "TITULAR (Bank Of America)" },
+    binance: { id: "0000000", correo: "CORREO@GMAIL.COM" }
   };
 
   const totalUSD = (Number(cantidad) || 0) * precioTicket;
